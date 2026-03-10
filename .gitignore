@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Eval results (keep the directory, ignore generated reports)
+services/eval/results/*.json
+!services/eval/results/.gitkeep
