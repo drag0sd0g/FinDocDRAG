@@ -1,0 +1,7 @@
+# Evaluation Harness Dependencies
+# See: docs/technical-design-document.md Section 5.2.4
+
+ragas==0.2.*
+datasets==3.2.*
+aiohttp==3.11.*
+pydantic==2.10.*

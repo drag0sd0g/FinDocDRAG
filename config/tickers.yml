@@ -1,0 +1,15 @@
+# Companies to ingest 10-K filings for.
+# Add or remove tickers as needed.
+# See: docs/technical-design-document.md FR-2
+
+tickers:
+  - symbol: "AAPL"
+    name: "Apple Inc."
+  - symbol: "MSFT"
+    name: "Microsoft Corporation"
+  - symbol: "GOOGL"
+    name: "Alphabet Inc."
+  - symbol: "AMZN"
+    name: "Amazon.com Inc."
+  - symbol: "JPM"
+    name: "JPMorgan Chase & Co."

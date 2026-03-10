@@ -1,0 +1,14 @@
+# Embedding Worker Dependencies
+# See: docs/technical-design-document.md Section 5.2.2
+
+confluent-kafka==2.6.*
+psycopg2-binary==2.9.*
+sentence-transformers==3.3.*
+tiktoken==0.8.*
+pgvector==0.3.*
+structlog==24.4.*
+prometheus-client==0.21.*
+pydantic==2.10.*
+pydantic-settings==2.7.*
+fastapi==0.115.*
+uvicorn[standard]==0.34.*

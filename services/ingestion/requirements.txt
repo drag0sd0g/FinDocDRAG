@@ -1,0 +1,13 @@
+# Ingestion Service Dependencies
+# See: docs/technical-design-document.md Section 5.2.1
+
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+aiohttp==3.11.*
+confluent-kafka==2.6.*
+psycopg2-binary==2.9.*
+pyyaml==6.0.*
+structlog==24.4.*
+prometheus-client==0.21.*
+pydantic==2.10.*
+pydantic-settings==2.7.*

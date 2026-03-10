@@ -1,0 +1,15 @@
+# Query API Dependencies
+# See: docs/technical-design-document.md Section 5.2.3
+
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+psycopg2-binary==2.9.*
+pgvector==0.3.*
+sentence-transformers==3.3.*
+aiohttp==3.11.*
+openai==1.58.*
+structlog==24.4.*
+prometheus-client==0.21.*
+slowapi==0.1.*
+pydantic==2.10.*
+pydantic-settings==2.7.*
