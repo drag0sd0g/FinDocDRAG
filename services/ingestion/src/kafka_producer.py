@@ -55,6 +55,7 @@ class FilingProducer:
                 "bootstrap.servers": servers,
                 "client.id": "ingestion-service",
                 "acks": "all",
+                "message.max.bytes": 20971520,
             }
         )
 

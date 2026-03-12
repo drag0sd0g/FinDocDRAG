@@ -191,22 +191,27 @@ class EdgarClient:
 
         for hit in hits:
             source = hit.get("_source", {})
-            accession = source.get("accession_no", "") or source.get("file_num", "")
-            accession = accession.strip()
+
+            # EDGAR uses "adsh" for the accession number (e.g. "0000320193-24-000123")
+            accession = source.get("adsh", "")
             if not accession:
                 logger.warning("edgar_missing_accession", ticker=ticker)
                 continue
 
-            filing_date = source.get("file_date", source.get("period_of_report", ""))
-            source_url = source.get("file_url", "")
+            filing_date = source.get("file_date", "")
 
-            if not source_url:
-                logger.warning(
-                    "edgar_missing_url",
-                    ticker=ticker,
-                    accession=accession,
-                )
+            # EDGAR doesn't return a direct filing URL — construct it from the accession number
+            # Format: https://www.sec.gov/Archives/edgar/data/{CIK}/{accession-no-dashes}/{accession}.txt
+            ciks = source.get("ciks", [])
+            cik = ciks[0] if ciks else ""
+            if not cik:
+                logger.warning("edgar_missing_cik", ticker=ticker, accession=accession)
                 continue
+
+            accession_no_dashes = accession.replace("-", "")
+            source_url = (
+                f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession_no_dashes}/{accession}.txt"
+            )
 
             raw_text = await self.fetch_filing_text(source_url, session)
             if raw_text is None:

@@ -71,6 +71,8 @@ services:
       KAFKA_LOG_RETENTION_HOURS: "168"
       # Required for KRaft
       CLUSTER_ID: "findoc-rag-kafka-cluster-01"
+      KAFKA_MESSAGE_MAX_BYTES: "20971520"
+      KAFKA_REPLICA_FETCH_MAX_BYTES: "20971520"
     ports:
       - "9092:9092"
     volumes:

@@ -148,10 +148,9 @@ async def ready() -> dict[str, str]:
 # ── POST /v1/query (FR-12 through FR-18) ────────────────────────
 
 @app.post("/v1/query", response_model=QueryResponse)
-@limiter.limit("30/minute")
 async def query(
-    request: Request,
     body: QueryRequest,
+    request: Request,
     _auth: None = Depends(verify_api_key),
 ) -> QueryResponse:
     """Accept a natural language question and return a cited answer."""
