@@ -1,15 +1,4 @@
-# FinDoc RAG — Technical Design Document
-
-## Financial Document Intelligence Platform
-
-| Field            | Value      |
-| ---------------- | ---------- |
-| **Author**       | Dragos     |
-| **Status**       | Draft      |
-| **Created**      | 2026-03-10 |
-| **Last Updated** | 2026-03-10 |
-
----
+# Financial Document Intelligence Platform — Technical Design Document
 
 ## Table of Contents
 
