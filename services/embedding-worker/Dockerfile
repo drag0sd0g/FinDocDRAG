@@ -2,9 +2,9 @@ FROM python:3.12-slim AS base
 
 WORKDIR /app
 
-# System deps for confluent-kafka (librdkafka) and psycopg2
+# System deps for confluent-kafka (librdkafka), psycopg2, + curl for health checks
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc librdkafka-dev libpq-dev && \
+    apt-get install -y --no-install-recommends gcc librdkafka-dev libpq-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
