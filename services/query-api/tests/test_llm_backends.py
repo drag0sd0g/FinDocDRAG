@@ -88,14 +88,14 @@ class TestOllamaBackend:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json = AsyncMock(return_value=ollama_response)
 
-        mock_post_ctx = AsyncMock()
+        mock_post_ctx = MagicMock()
         mock_post_ctx.__aenter__ = AsyncMock(return_value=mock_resp)
         mock_post_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        mock_session = AsyncMock()
-        mock_session.post.return_value = mock_post_ctx
+        mock_session = MagicMock()
+        mock_session.post = MagicMock(return_value=mock_post_ctx)
 
-        mock_session_ctx = AsyncMock()
+        mock_session_ctx = MagicMock()
         mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
