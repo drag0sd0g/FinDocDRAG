@@ -8,9 +8,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ── FastAPI endpoints (health sidecar) ───────────────────────────
 
 
@@ -187,9 +184,8 @@ class TestConsumeLoop:
         mock_store_class: MagicMock,
     ) -> None:
         """A valid Kafka message is chunked, embedded, stored, and confirmed."""
-        from src.chunker import Chunk
-
         import src.main as main_mod
+        from src.chunker import Chunk
 
         # Set up global state
         mock_embedder = MagicMock()

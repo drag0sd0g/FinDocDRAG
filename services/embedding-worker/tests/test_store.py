@@ -5,6 +5,7 @@ All database calls are mocked — no real PostgreSQL needed.
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import MagicMock, patch
 
 from src.chunker import Chunk
@@ -133,10 +134,8 @@ class TestStoreChunks:
             token_count=5,
         )
 
-        try:
+        with contextlib.suppress(RuntimeError):
             store.store_chunks([chunk], [[0.1] * 384])
-        except RuntimeError:
-            pass
 
         mock_conn.rollback.assert_called_once()
         mock_cur.close.assert_called_once()
@@ -182,10 +181,8 @@ class TestUpdateIngestionStatus:
         store = ChunkStore(dsn="postgresql://fake")
         store._conn = mock_conn
 
-        try:
+        with contextlib.suppress(RuntimeError):
             store.update_ingestion_status("0001-24-000001", 10)
-        except RuntimeError:
-            pass
 
         mock_conn.rollback.assert_called_once()
         mock_cur.close.assert_called_once()

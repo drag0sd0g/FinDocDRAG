@@ -11,7 +11,6 @@ import pytest
 
 from src.llm.backend import LLMResponse
 
-
 # ── OllamaBackend ────────────────────────────────────────────────
 
 

@@ -7,12 +7,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from src.llm.backend import LLMResponse
 from src.models import QueryResponse, SourceChunk, TimingInfo
-from src.rag.prompts import RetrievedChunk
-
 
 # ── Health & Ready ───────────────────────────────────────────────
 
