@@ -8,15 +8,15 @@ Covers: search, fetch, skip-on-failure (FR-5), Filing dataclass,
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.config import Settings, load_tickers
 from src.edgar_client import EdgarClient, Filing
-
 
 # ── Helpers ──────────────────────────────────────────────────────
 

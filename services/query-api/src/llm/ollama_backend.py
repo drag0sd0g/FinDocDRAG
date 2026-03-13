@@ -50,13 +50,12 @@ class OllamaBackend:
             },
         }
 
-        async with aiohttp.ClientSession(timeout=self._timeout) as session:
-            async with session.post(
-                f"{self._base_url}/api/generate",
-                json=payload,
-            ) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
+        async with aiohttp.ClientSession(timeout=self._timeout) as session, session.post(
+            f"{self._base_url}/api/generate",
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
 
         text = data.get("response", "")
         # Ollama provides token counts in some versions

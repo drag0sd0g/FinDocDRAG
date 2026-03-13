@@ -66,7 +66,7 @@ ollama:
 
 # ── Ingestion Service ─────────────────────────────────────
 ingestion:
-  image: findoc-rag/ingestion:latest
+  image: ghcr.io/drag0sd0g/findoc-rag/ingestion:latest
   replicas: 1
   port: 8001
   edgarUserAgent: "FinDocRAG findocrag@example.com"
@@ -97,7 +97,7 @@ embeddingWorker:
 
 # ── Query API ─────────────────────────────────────────────
 queryApi:
-  image: findoc-rag/query-api:latest
+  image: ghcr.io/drag0sd0g/findoc-rag/query-api:latest
   replicas: 2
   port: 8000
   llmBackend: ollama
@@ -163,4 +163,4 @@ ingress:
 driftDetection:
   enabled: true
   schedule: "0 3 * * 0"    # Every Sunday at 3 AM
-  image: findoc-rag/embedding-worker:latest
+  image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:latest

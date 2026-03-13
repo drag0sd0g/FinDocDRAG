@@ -78,13 +78,12 @@ class EdgarClient:
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                async with self._semaphore:
-                    async with session.get(
-                        EDGAR_SEARCH_URL, params=params, headers=headers
-                    ) as resp:
-                        resp.raise_for_status()
-                        data: dict[str, Any] = await resp.json(content_type=None)
-                        await asyncio.sleep(1.0 / self.rate_limit_rps)
+                async with self._semaphore, session.get(
+                    EDGAR_SEARCH_URL, params=params, headers=headers
+                ) as resp:
+                    resp.raise_for_status()
+                    data: dict[str, Any] = await resp.json(content_type=None)
+                    await asyncio.sleep(1.0 / self.rate_limit_rps)
 
                 hits: list[dict[str, Any]] = data.get("hits", {}).get("hits", [])
                 logger.info(
@@ -137,12 +136,11 @@ class EdgarClient:
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                async with self._semaphore:
-                    async with session.get(filing_url, headers=headers) as resp:
-                        resp.raise_for_status()
-                        text: str = await resp.text()
-                        await asyncio.sleep(1.0 / self.rate_limit_rps)
-                        return text
+                async with self._semaphore, session.get(filing_url, headers=headers) as resp:
+                    resp.raise_for_status()
+                    text: str = await resp.text()
+                    await asyncio.sleep(1.0 / self.rate_limit_rps)
+                    return text
 
             except aiohttp.ClientError as exc:
                 if attempt == self.max_retries:

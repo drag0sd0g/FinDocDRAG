@@ -13,10 +13,9 @@ from fastapi import HTTPException
 
 from src.auth import verify_api_key
 from src.llm.backend import LLMResponse
-from src.models import QueryRequest, QueryResponse, SourceChunk, TimingInfo
+from src.models import QueryRequest, QueryResponse, SourceChunk
 from src.rag.generator import RAGGenerator
 from src.rag.prompts import RetrievedChunk, build_prompt
-
 
 # ── Prompt builder ───────────────────────────────────────────────
 

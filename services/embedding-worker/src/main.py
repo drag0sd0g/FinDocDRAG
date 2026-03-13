@@ -13,10 +13,14 @@ from __future__ import annotations
 
 import json
 import logging
+
+# ── Configuration ────────────────────────────────────────────────
+import os
 import threading
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, AsyncGenerator
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 import uvicorn
@@ -26,10 +30,6 @@ from fastapi import FastAPI
 from src.chunker import chunk_filing
 from src.embedder import Embedder
 from src.store import ChunkStore
-
-# ── Configuration ────────────────────────────────────────────────
-
-import os
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 POSTGRES_DSN = (
@@ -141,7 +141,7 @@ def _consume_loop() -> None:
                 "accession_number": accession,
                 "chunk_ids": [c.chunk_id for c in chunks],
                 "chunk_count": len(chunks),
-                "processed_at": datetime.now(timezone.utc).isoformat(),
+                "processed_at": datetime.now(UTC).isoformat(),
             }
             producer.produce(
                 topic=TOPIC_EMBEDDED,
@@ -171,7 +171,7 @@ def _consume_loop() -> None:
                 dlq_msg = {
                     "original_message": payload if 'payload' in dir() else {},
                     "error": str(exc),
-                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                    "failed_at": datetime.now(UTC).isoformat(),
                     "retry_count": MAX_RETRIES,
                 }
                 producer.produce(

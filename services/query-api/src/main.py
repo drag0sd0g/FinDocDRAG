@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 import structlog
 import uvicorn
@@ -195,7 +195,6 @@ async def list_documents(
     if _retriever is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    import psycopg2
 
     conn = _retriever._get_conn()
     cur = conn.cursor()

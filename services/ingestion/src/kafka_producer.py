@@ -9,7 +9,7 @@ References:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -69,7 +69,7 @@ class FilingProducer:
             "company_name": filing.company_name,
             "raw_text": filing.raw_text,
             "source_url": filing.source_url,
-            "published_at": datetime.now(timezone.utc).isoformat(),
+            "published_at": datetime.now(UTC).isoformat(),
         }
 
         self._producer.produce(
