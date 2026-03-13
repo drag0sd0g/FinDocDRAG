@@ -1,0 +1,148 @@
+# ============================================================
+# FinDocRAG — CI Pipeline
+# See: docs/technical-design-document.md Section 10.3
+# Triggers: every push and pull request
+# ============================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Lint (ruff) ──────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check services/
+
+  # ── Type Check + Unit Tests + Audit (per-service matrix) ─
+  test:
+    name: Test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [ingestion, embedding-worker, query-api]
+        include:
+          - service: ingestion
+            path: services/ingestion
+            system-deps: gcc librdkafka-dev
+            extra-test-deps: "pytest pytest-asyncio pytest-cov"
+          - service: embedding-worker
+            path: services/embedding-worker
+            system-deps: gcc librdkafka-dev libpq-dev
+            extra-test-deps: "pytest pytest-asyncio pytest-cov numpy"
+          - service: query-api
+            path: services/query-api
+            system-deps: gcc libpq-dev
+            extra-test-deps: "pytest pytest-asyncio pytest-cov numpy"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.system-deps }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ matrix.service }}-${{ hashFiles(format('{0}/requirements.txt', matrix.path)) }}
+          restore-keys: |
+            pip-${{ matrix.service }}-
+
+      - name: Install service dependencies
+        working-directory: ${{ matrix.path }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ${{ matrix.extra-test-deps }}
+
+      - name: Install mypy + type stubs
+        working-directory: ${{ matrix.path }}
+        run: pip install mypy types-PyYAML types-requests
+
+      # ── Type Check (mypy) ────────────────────────────────
+      - name: Run mypy
+        working-directory: ${{ matrix.path }}
+        run: |
+          python -m mypy src/ \
+            --ignore-missing-imports \
+            --no-error-summary || true
+
+      # ── Unit Tests (pytest + coverage) ───────────────────
+      - name: Run pytest with coverage
+        working-directory: ${{ matrix.path }}
+        env:
+          PYTHONPATH: "."
+        run: |
+          python -m pytest tests/ -v \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --junitxml=test-results.xml
+
+      # ── Upload coverage artifact ─────────────────────────
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: ${{ matrix.path }}/coverage.xml
+          retention-days: 14
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.service }}
+          path: ${{ matrix.path }}/test-results.xml
+          retention-days: 14
+
+      # ── Dependency Audit (pip-audit) ─────────────────────
+      - name: Run pip-audit
+        working-directory: ${{ matrix.path }}
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt || true
+
+  # ── Helm Chart Validation ────────────────────────────────
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Lint Helm chart
+        run: helm lint helm/findoc-rag/
+
+      - name: Template Helm chart (dry-run)
+        run: helm template findoc-rag helm/findoc-rag/ > /dev/null
