@@ -99,10 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _retriever.connect()
 
     # LLM backend (FR-18)
-    if LLM_BACKEND == "openai":
-        llm = OpenAIBackend()
-    else:
-        llm = OllamaBackend(base_url=OLLAMA_URL, model=OLLAMA_MODEL)  # type: ignore[assignment]
+    llm = OpenAIBackend() if LLM_BACKEND == "openai" else OllamaBackend(base_url=OLLAMA_URL, model=OLLAMA_MODEL)  # type: ignore[assignment]
 
     _generator = RAGGenerator(retriever=_retriever, llm=llm)
 

@@ -79,7 +79,7 @@ class TestSplitIntoSections:
         assert "Item 1A" in names
         assert "Item 7" in names
 
-    def test_case_insensitive_ITEM(self) -> None:
+    def test_case_insensitive_item(self) -> None:
         text = "ITEM 1. BUSINESS\nWe are a company."
         sections = split_into_sections(text)
         names = [s[0] for s in sections]

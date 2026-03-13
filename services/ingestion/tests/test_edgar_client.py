@@ -110,7 +110,7 @@ class TestSearchFilings:
         @asynccontextmanager
         async def _raise_ctx(*a: Any, **kw: Any) -> AsyncGenerator[None, None]:
             raise ValueError("unexpected")
-            yield  # noqa: unreachable  # type: ignore[misc]
+            yield  # noqa: RET504  # type: ignore[misc]
 
         mock_session = MagicMock()
         mock_session.get = _raise_ctx
@@ -155,7 +155,7 @@ class TestFetchFilingText:
         @asynccontextmanager
         async def _raise_ctx(*a: Any, **kw: Any) -> AsyncGenerator[None, None]:
             raise RuntimeError("boom")
-            yield  # noqa: unreachable  # type: ignore[misc]
+            yield  # noqa: RET504  # type: ignore[misc]
 
         mock_session = MagicMock()
         mock_session.get = _raise_ctx
@@ -270,9 +270,9 @@ class TestKafkaProducer:
     def test_publish_filing_calls_produce(self) -> None:
         from src.kafka_producer import FilingProducer
 
-        with patch("src.kafka_producer.Producer") as MockProducer:
+        with patch("src.kafka_producer.Producer") as mock_producer:
             mock_instance = MagicMock()
-            MockProducer.return_value = mock_instance
+            mock_producer.return_value = mock_instance
 
             producer = FilingProducer(bootstrap_servers="localhost:9092")
 
@@ -301,10 +301,10 @@ class TestKafkaProducer:
     def test_flush_delegates_to_producer(self) -> None:
         from src.kafka_producer import FilingProducer
 
-        with patch("src.kafka_producer.Producer") as MockProducer:
+        with patch("src.kafka_producer.Producer") as mock_producer:
             mock_instance = MagicMock()
             mock_instance.flush.return_value = 0
-            MockProducer.return_value = mock_instance
+            mock_producer.return_value = mock_instance
 
             producer = FilingProducer(bootstrap_servers="localhost:9092")
             remaining = producer.flush()
