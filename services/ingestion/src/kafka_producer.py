@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
 import structlog
 from confluent_kafka import KafkaError, Producer
 
 from src.config import settings
-from src.edgar_client import Filing
+
+if TYPE_CHECKING:
+    from src.edgar_client import Filing
 
 logger = structlog.get_logger()
 

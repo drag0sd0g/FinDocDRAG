@@ -8,14 +8,15 @@ References:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 import psycopg2
 import psycopg2.extras
 import structlog
 from pgvector.psycopg2 import register_vector
 
-from src.chunker import Chunk
+if TYPE_CHECKING:
+    from src.chunker import Chunk
 
 logger = structlog.get_logger()
 
@@ -77,7 +78,7 @@ class ChunkStore:
         """
 
         rows: list[dict[str, Any]] = []
-        for chunk, emb in zip(chunks, embeddings):
+        for chunk, emb in zip(chunks, embeddings, strict=True):
             rows.append(
                 {
                     "chunk_id": chunk.chunk_id,

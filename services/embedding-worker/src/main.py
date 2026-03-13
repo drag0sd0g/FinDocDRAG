@@ -17,10 +17,9 @@ import logging
 # ── Configuration ────────────────────────────────────────────────
 import os
 import threading
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 import uvicorn
@@ -30,6 +29,9 @@ from fastapi import FastAPI
 from src.chunker import chunk_filing
 from src.embedder import Embedder
 from src.store import ChunkStore
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 POSTGRES_DSN = (

@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import structlog
 import uvicorn
@@ -37,6 +37,9 @@ from src.models import (
 )
 from src.rag.generator import RAGGenerator
 from src.rag.retriever import Retriever
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 # ── Configuration ────────────────────────────────────────────────
 

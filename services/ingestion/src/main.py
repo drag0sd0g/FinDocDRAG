@@ -13,9 +13,8 @@ References:
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import structlog
@@ -26,6 +25,9 @@ from pydantic import BaseModel
 from src.config import load_tickers, settings
 from src.edgar_client import EdgarClient
 from src.kafka_producer import FilingProducer
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 # ── Structured logging (TDD: Section 8.3) ───────────────────────
 

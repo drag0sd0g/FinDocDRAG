@@ -8,13 +8,16 @@ References:
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 import structlog
 
-from src.llm.backend import LLMBackend
+if TYPE_CHECKING:
+    from src.llm.backend import LLMBackend
+    from src.rag.retriever import Retriever
+
 from src.models import QueryResponse, SourceChunk, TimingInfo
 from src.rag.prompts import build_prompt
-from src.rag.retriever import Retriever
 
 logger = structlog.get_logger()
 
