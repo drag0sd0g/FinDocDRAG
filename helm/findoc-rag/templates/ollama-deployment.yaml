@@ -10,7 +10,7 @@ metadata:
 spec:
   replicas: {{ .Values.ollama.replicas }}
   strategy:
-    type: Recreate   # Ollama holds model in memory; rolling update would double RAM usage
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: ollama
@@ -22,21 +22,6 @@ spec:
         app.kubernetes.io/component: ollama
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      initContainers:
-        # Pull the model before the main container accepts traffic
-        - name: model-pull
-          image: curlimages/curl:latest
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for Ollama to be ready..."
-              until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do
-                sleep 2
-              done
-              echo "Pulling model {{ .Values.ollama.model }}..."
-              curl -sf http://localhost:11434/api/pull -d '{"name": "{{ .Values.ollama.model }}"}' || true
-              echo "Model pull complete."
       containers:
         - name: ollama
           image: {{ .Values.ollama.image }}
@@ -51,12 +36,25 @@ spec:
             limits:
               cpu: {{ .Values.ollama.resources.limits.cpu }}
               memory: {{ .Values.ollama.resources.limits.memory }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    until ollama list > /dev/null 2>&1; do sleep 2; done
+                    ollama pull {{ .Values.ollama.model }}
           readinessProbe:
             exec:
-              command: ["ollama", "list"]
-            initialDelaySeconds: 10
-            periodSeconds: 10
+              command:
+                - sh
+                - -c
+                - ollama list | grep -q {{ .Values.ollama.model | quote }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
             timeoutSeconds: 5
+            failureThreshold: 20
           livenessProbe:
             exec:
               command: ["ollama", "list"]

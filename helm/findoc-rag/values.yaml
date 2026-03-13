@@ -37,8 +37,8 @@ kafka:
     numPartitions: 6
     replicationFactor: 1
     logRetentionHours: 168
-    messageMaxBytes: 20971520
-    replicaFetchMaxBytes: 20971520
+    messageMaxBytes: "20971520"
+    replicaFetchMaxBytes: "20971520"
     clusterId: "findoc-rag-kafka-cluster-01"
   resources:
     requests:

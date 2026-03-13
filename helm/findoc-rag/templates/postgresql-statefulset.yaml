@@ -21,30 +21,6 @@ spec:
         app.kubernetes.io/component: postgresql
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      initContainers:
-        # Run DB migrations before PostgreSQL is available to app services
-        - name: db-migrate
-          image: {{ .Values.postgresql.image }}
-          command:
-            - sh
-            - -c
-            - |
-              until pg_isready -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
-                echo "Waiting for PostgreSQL..."; sleep 2;
-              done
-              echo "Running migrations..."
-              for f in /migrations/*.sql; do
-                echo "Applying $f"
-                psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$f"
-              done
-              echo "Migrations complete."
-          envFrom:
-            - secretRef:
-                name: {{ .Release.Name }}-postgresql
-          volumeMounts:
-            - name: migrations
-              mountPath: /migrations
-              readOnly: true
       containers:
         - name: postgresql
           image: {{ .Values.postgresql.image }}
@@ -85,8 +61,11 @@ spec:
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
       volumes:
-        - name: migrations
+        - name: initdb
           configMap:
             name: {{ .Release.Name }}-db-migrations
   volumeClaimTemplates:
