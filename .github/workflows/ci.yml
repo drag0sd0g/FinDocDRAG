@@ -47,7 +47,7 @@ jobs:
           - service: embedding-worker
             path: services/embedding-worker
             system-deps: gcc librdkafka-dev libpq-dev
-            extra-test-deps: "pytest pytest-asyncio pytest-cov numpy"
+            extra-test-deps: "pytest pytest-asyncio pytest-cov numpy httpx"
           - service: query-api
             path: services/query-api
             system-deps: gcc libpq-dev
