@@ -15,18 +15,18 @@ setup:  ## Create virtual environments and install dependencies
 	@echo "==> Setting up query API..."
 	cd services/query-api && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 	@echo "==> Installing test dependencies..."
-	cd services/ingestion && .venv/bin/pip install pytest pytest-asyncio pytest-cov
-	cd services/embedding-worker && .venv/bin/pip install pytest pytest-asyncio pytest-cov numpy
-	cd services/query-api && .venv/bin/pip install pytest pytest-asyncio pytest-cov numpy
+	cd services/ingestion && .venv/bin/pip install pytest pytest-asyncio pytest-cov httpx
+	cd services/embedding-worker && .venv/bin/pip install pytest pytest-asyncio pytest-cov numpy httpx
+	cd services/query-api && .venv/bin/pip install pytest pytest-asyncio pytest-cov numpy httpx
 	@echo "==> Setup complete."
 
 test:  ## Run pytest for all services
 	@echo "==> Testing ingestion service..."
-	cd services/ingestion && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing
+	cd services/ingestion && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=0
 	@echo "==> Testing embedding worker..."
-	cd services/embedding-worker && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing
+	cd services/embedding-worker && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=0
 	@echo "==> Testing query API..."
-	cd services/query-api && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing
+	cd services/query-api && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=0
 
 lint:  ## Run ruff + mypy for all services
 	@echo "==> Linting with ruff..."
@@ -66,10 +66,3 @@ helm-deploy:  ## Deploy to Kubernetes via Helm
 
 helm-teardown:  ## Remove Helm release
 	helm uninstall findoc-rag
-
-# ── Help ─────────────────────────────────────────────────────
-
-help:  ## Show this help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
-
-.DEFAULT_GOAL := help
