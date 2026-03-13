@@ -1,0 +1,17 @@
+# ============================================================
+# Grafana — Dashboard Provisioning
+# Auto-loads dashboards from the /var/lib/grafana/dashboards dir.
+# ============================================================
+
+apiVersion: 1
+
+providers:
+  - name: FinDocRAG
+    orgId: 1
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

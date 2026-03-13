@@ -1,0 +1,33 @@
+# ============================================================
+# FinDocRAG — Prometheus Configuration (Docker Compose)
+# See: docs/technical-design-document.md Section 8.1
+# ============================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # ── Ingestion Service ────────────────────────────────────────
+  - job_name: ingestion
+    static_configs:
+      - targets:
+          - ingestion:8001
+        labels:
+          service: ingestion
+
+  # ── Embedding Worker ─────────────────────────────────────────
+  - job_name: embedding-worker
+    static_configs:
+      - targets:
+          - embedding-worker:8002
+        labels:
+          service: embedding-worker
+
+  # ── Query API ────────────────────────────────────────────────
+  - job_name: query-api
+    static_configs:
+      - targets:
+          - query-api:8000
+        labels:
+          service: query-api
