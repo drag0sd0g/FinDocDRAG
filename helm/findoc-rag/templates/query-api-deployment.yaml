@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-query-api
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: findoc-rag
+    app.kubernetes.io/component: query-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.queryApi.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: query-api
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: findoc-rag
+        app.kubernetes.io/component: query-api
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: query-api
+          image: {{ .Values.queryApi.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.queryApi.port }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-app-config
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_PASSWORD
+            - name: API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-api-keys
+                  key: API_KEYS
+            {{- if .Values.queryApi.openaiApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-api-keys
+                  key: OPENAI_API_KEY
+            {{- end }}
+          resources:
+            requests:
+              cpu: {{ .Values.queryApi.resources.requests.cpu }}
+              memory: {{ .Values.queryApi.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.queryApi.resources.limits.cpu }}
+              memory: {{ .Values.queryApi.resources.limits.memory }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.queryApi.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.queryApi.port }}
+            initialDelaySeconds: 90
+            periodSeconds: 20

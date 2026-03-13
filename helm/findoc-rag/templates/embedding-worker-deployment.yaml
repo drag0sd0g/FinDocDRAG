@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-embedding-worker
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: findoc-rag
+    app.kubernetes.io/component: embedding-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.embeddingWorker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: embedding-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: findoc-rag
+        app.kubernetes.io/component: embedding-worker
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: embedding-worker
+          image: {{ .Values.embeddingWorker.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.embeddingWorker.port }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-app-config
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: {{ .Values.embeddingWorker.resources.requests.cpu }}
+              memory: {{ .Values.embeddingWorker.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.embeddingWorker.resources.limits.cpu }}
+              memory: {{ .Values.embeddingWorker.resources.limits.memory }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.embeddingWorker.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.embeddingWorker.port }}
+            initialDelaySeconds: 90
+            periodSeconds: 20

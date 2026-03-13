@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-app-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: findoc-rag
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  POSTGRES_HOST: {{ .Release.Name }}-postgresql
+  POSTGRES_PORT: "5432"
+  KAFKA_BOOTSTRAP_SERVERS: {{ .Release.Name }}-kafka:9092
+  EMBEDDING_MODEL: {{ .Values.embeddingWorker.embeddingModel | quote }}
+  LLM_BACKEND: {{ .Values.queryApi.llmBackend | quote }}
+  OLLAMA_URL: http://{{ .Release.Name }}-ollama:11434
+  OLLAMA_MODEL: {{ .Values.ollama.model | quote }}
+  EDGAR_USER_AGENT: {{ .Values.ingestion.edgarUserAgent | quote }}
+  EDGAR_RATE_LIMIT_RPS: {{ .Values.ingestion.edgarRateLimitRps | quote }}
+  LOG_LEVEL: {{ .Values.ingestion.logLevel | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-db-migrations
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: findoc-rag
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  001_initial_schema.sql: |
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    CREATE TABLE IF NOT EXISTS ingestion_log (
+        accession_number VARCHAR(30)  PRIMARY KEY,
+        ticker           VARCHAR(10)  NOT NULL,
+        company_name     VARCHAR(200) NOT NULL,
+        filing_date      DATE         NOT NULL,
+        filing_type      VARCHAR(10)  NOT NULL DEFAULT '10-K',
+        source_url       TEXT         NOT NULL,
+        status           VARCHAR(20)  NOT NULL DEFAULT 'PUBLISHED',
+        chunk_count      INTEGER,
+        ingested_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        completed_at     TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ingestion_ticker ON ingestion_log(ticker);
+    CREATE INDEX IF NOT EXISTS idx_ingestion_status ON ingestion_log(status);
+
+    CREATE TABLE IF NOT EXISTS document_chunks (
+        chunk_id         VARCHAR(64)  PRIMARY KEY,
+        accession_number VARCHAR(30)  NOT NULL REFERENCES ingestion_log(accession_number),
+        ticker           VARCHAR(10)  NOT NULL,
+        filing_date      DATE         NOT NULL,
+        section_name     VARCHAR(100) NOT NULL,
+        chunk_index      INTEGER      NOT NULL,
+        chunk_text       TEXT         NOT NULL,
+        token_count      INTEGER      NOT NULL,
+        embedding        vector(384)  NOT NULL,
+        created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON document_chunks
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 200);
+
+    CREATE INDEX IF NOT EXISTS idx_chunks_ticker ON document_chunks(ticker);
+    CREATE INDEX IF NOT EXISTS idx_chunks_accession ON document_chunks(accession_number);
+{{- if .Values.prometheus.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-prometheus-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: findoc-rag
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+    scrape_configs:
+      - job_name: ingestion
+        static_configs:
+          - targets:
+              - {{ .Release.Name }}-ingestion:{{ .Values.ingestion.port }}
+      - job_name: embedding-worker
+        static_configs:
+          - targets:
+              - {{ .Release.Name }}-embedding-worker:{{ .Values.embeddingWorker.port }}
+      - job_name: query-api
+        static_configs:
+          - targets:
+              - {{ .Release.Name }}-query-api:{{ .Values.queryApi.port }}
+{{- end }}

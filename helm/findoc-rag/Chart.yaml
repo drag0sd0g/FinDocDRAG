@@ -1,0 +1,14 @@
+apiVersion: v2
+name: findoc-rag
+description: Financial Document Intelligence Platform — RAG pipeline for SEC 10-K filings
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - rag
+  - fintech
+  - sec-edgar
+  - pgvector
+  - kafka
+maintainers:
+  - name: drag0sd0g

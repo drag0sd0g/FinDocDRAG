@@ -1,0 +1,166 @@
+# ============================================================
+# FinDocRAG Helm Values
+# See: docs/technical-design-document.md Section 10.4
+# ============================================================
+
+global:
+  namespace: findoc-rag
+  imagePullPolicy: IfNotPresent
+
+# ── PostgreSQL + pgvector ──────────────────────────────────
+postgresql:
+  image: pgvector/pgvector:pg16
+  replicas: 1
+  storage:
+    size: 10Gi
+    storageClassName: ""   # Use cluster default
+  credentials:
+    database: findocrag
+    username: findocrag
+    password: changeme     # Override in production via --set or sealed-secret
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# ── Kafka (KRaft mode) ────────────────────────────────────
+kafka:
+  image: apache/kafka:latest
+  replicas: 1
+  storage:
+    size: 10Gi
+    storageClassName: ""
+  config:
+    numPartitions: 6
+    replicationFactor: 1
+    logRetentionHours: 168
+    messageMaxBytes: 20971520
+    replicaFetchMaxBytes: 20971520
+    clusterId: "findoc-rag-kafka-cluster-01"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+# ── Ollama (LLM server) ──────────────────────────────────
+ollama:
+  image: ollama/ollama:latest
+  replicas: 1
+  model: mistral:7b
+  storage:
+    size: 20Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      cpu: "4"
+      memory: 12Gi
+
+# ── Ingestion Service ─────────────────────────────────────
+ingestion:
+  image: findoc-rag/ingestion:latest
+  replicas: 1
+  port: 8001
+  edgarUserAgent: "FinDocRAG findocrag@example.com"
+  edgarRateLimitRps: "10"
+  logLevel: INFO
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# ── Embedding Worker ──────────────────────────────────────
+embeddingWorker:
+  image: findoc-rag/embedding-worker:latest
+  replicas: 2
+  port: 8002
+  embeddingModel: "sentence-transformers/all-MiniLM-L6-v2"
+  logLevel: INFO
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# ── Query API ─────────────────────────────────────────────
+queryApi:
+  image: findoc-rag/query-api:latest
+  replicas: 2
+  port: 8000
+  llmBackend: ollama
+  ollamaModel: mistral:7b
+  embeddingModel: "sentence-transformers/all-MiniLM-L6-v2"
+  apiKeys: "dev-key-1,dev-key-2"
+  openaiApiKey: ""
+  logLevel: INFO
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilization: 70
+
+# ── Prometheus ────────────────────────────────────────────
+prometheus:
+  enabled: true
+  image: prom/prometheus:latest
+  replicas: 1
+  storage:
+    size: 5Gi
+    storageClassName: ""
+  scrapeInterval: 15s
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# ── Grafana ───────────────────────────────────────────────
+grafana:
+  enabled: true
+  image: grafana/grafana:latest
+  replicas: 1
+  adminPassword: admin     # Override in production
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+
+# ── Ingress ───────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: nginx
+  host: findoc-rag.local
+  tls:
+    enabled: false
+    secretName: findoc-rag-tls
+
+# ── Drift Detection CronJob ──────────────────────────────
+driftDetection:
+  enabled: true
+  schedule: "0 3 * * 0"    # Every Sunday at 3 AM
+  image: findoc-rag/embedding-worker:latest

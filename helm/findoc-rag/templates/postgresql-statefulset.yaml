@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-postgresql
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: findoc-rag
+    app.kubernetes.io/component: postgresql
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  serviceName: {{ .Release.Name }}-postgresql
+  replicas: {{ .Values.postgresql.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: postgresql
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: findoc-rag
+        app.kubernetes.io/component: postgresql
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      initContainers:
+        # Run DB migrations before PostgreSQL is available to app services
+        - name: db-migrate
+          image: {{ .Values.postgresql.image }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
+                echo "Waiting for PostgreSQL..."; sleep 2;
+              done
+              echo "Running migrations..."
+              for f in /migrations/*.sql; do
+                echo "Applying $f"
+                psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$f"
+              done
+              echo "Migrations complete."
+          envFrom:
+            - secretRef:
+                name: {{ .Release.Name }}-postgresql
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: {{ .Release.Name }}-postgresql
+          resources:
+            requests:
+              cpu: {{ .Values.postgresql.resources.requests.cpu }}
+              memory: {{ .Values.postgresql.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.postgresql.resources.limits.cpu }}
+              memory: {{ .Values.postgresql.resources.limits.memory }}
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresql.credentials.username }}
+                - -d
+                - {{ .Values.postgresql.credentials.database }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgresql.credentials.username }}
+                - -d
+                - {{ .Values.postgresql.credentials.database }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: migrations
+          configMap:
+            name: {{ .Release.Name }}-db-migrations
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.postgresql.storage.storageClassName }}
+        storageClassName: {{ .Values.postgresql.storage.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage.size }}
