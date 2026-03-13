@@ -63,7 +63,7 @@ class TestHealthEndpoints:
             main_mod._store = original_store
 
 
-# ── Consume loop ──────────────────��──────────────────────────────
+# ── Consume loop ─────────────────────────────────────────────────
 
 
 class TestConsumeLoop:
