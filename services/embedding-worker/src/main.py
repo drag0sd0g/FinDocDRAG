@@ -7,6 +7,7 @@ References:
   - TDD: FR-6 through FR-11
   - TDD: Section 5.2.2
   - TDD: Section 7.2 (idempotency), 7.3 (DLQ)
+  - TDD: Section 8.1.2 (Embedding Worker Metrics)
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import logging
 # ── Configuration ────────────────────────────────────────────────
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -25,9 +27,17 @@ import structlog
 import uvicorn
 from confluent_kafka import Consumer, KafkaError, Producer
 from fastapi import FastAPI
+from prometheus_client import make_asgi_app
 
 from src.chunker import chunk_filing
 from src.embedder import Embedder
+from src.metrics import (
+    BATCH_DURATION,
+    CHUNK_TOKENS,
+    CHUNKS_PROCESSED_TOTAL,
+    DLQ_MESSAGES_TOTAL,
+    KAFKA_LAG,
+)
 from src.store import ChunkStore
 
 if TYPE_CHECKING:
@@ -128,15 +138,25 @@ def _consume_loop() -> None:
                 consumer.commit(msg)
                 continue
 
-            # Embed
+            # Record token distribution (TDD Section 8.1.2)
+            for c in chunks:
+                CHUNK_TOKENS.observe(c.token_count)
+
+            # Embed (with batch duration timing)
             assert _embedder is not None
             texts = [c.text for c in chunks]
+            t0 = time.perf_counter()
             embeddings = _embedder.embed(texts)
+            embed_elapsed = time.perf_counter() - t0
+            BATCH_DURATION.observe(embed_elapsed)
 
             # Store
             assert _store is not None
             _store.store_chunks(chunks, embeddings)
             _store.update_ingestion_status(accession, len(chunks))
+
+            # Record successful chunk processing
+            CHUNKS_PROCESSED_TOTAL.labels(ticker=ticker, status="success").inc(len(chunks))
 
             # Publish confirmation to filings.embedded (FR-11)
             confirmation = {
@@ -155,6 +175,17 @@ def _consume_loop() -> None:
             # Manual offset commit (TDD Section 7.2)
             consumer.commit(msg)
 
+            # Update Kafka lag gauge
+            try:
+                partitions = consumer.assignment()
+                for tp in partitions:
+                    (lo, hi) = consumer.get_watermark_offsets(tp, cached=True)
+                    committed = consumer.committed([tp])[0].offset
+                    if committed >= 0 and hi >= 0:
+                        KAFKA_LAG.labels(partition=str(tp.partition)).set(hi - committed)
+            except Exception:
+                pass  # lag reporting is best-effort
+
             logger.info(
                 "filing_processed",
                 accession=accession,
@@ -168,6 +199,11 @@ def _consume_loop() -> None:
                 error=str(exc),
                 accession=payload.get("accession_number", "unknown") if 'payload' in dir() else "unknown",
             )
+
+            # Record failed chunk processing
+            _ticker = payload.get("ticker", "unknown") if 'payload' in dir() else "unknown"
+            CHUNKS_PROCESSED_TOTAL.labels(ticker=_ticker, status="error").inc()
+
             # Publish to DLQ (TDD Section 7.3)
             try:
                 dlq_msg = {
@@ -182,6 +218,7 @@ def _consume_loop() -> None:
                     value=json.dumps(dlq_msg),
                 )
                 producer.poll(0)
+                DLQ_MESSAGES_TOTAL.inc()
             except Exception as dlq_exc:
                 logger.error("dlq_publish_failed", error=str(dlq_exc))
 
@@ -226,6 +263,10 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# ── Mount Prometheus /metrics endpoint (TDD: Section 8.1) ────────
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 
 @app.get("/health")

@@ -3,6 +3,7 @@
 References:
   - TDD: FR-14 through FR-17
   - TDD: Section 7.4 (graceful degradation if LLM unavailable)
+  - TDD: Section 8.1.3 (Query API Metrics)
 """
 
 from __future__ import annotations
@@ -16,6 +17,14 @@ if TYPE_CHECKING:
     from src.llm.backend import LLMBackend
     from src.rag.retriever import Retriever
 
+from src.metrics import (
+    EMBEDDING_DURATION,
+    LLM_DURATION,
+    LLM_TOKENS_USED,
+    RETRIEVAL_DURATION,
+    RETRIEVAL_SCORE,
+    TOTAL_DURATION,
+)
 from src.models import QueryResponse, SourceChunk, TimingInfo
 from src.rag.prompts import build_prompt
 
@@ -49,10 +58,20 @@ class RAGGenerator:
             ticker_filter=ticker_filter,
         )
 
+        # Record embedding duration metric (convert ms → seconds)
+        EMBEDDING_DURATION.observe(embedding_ms / 1000.0)
+
         retrieval_start = time.perf_counter()
         # retrieval_ms is measured inside retriever; we compute the
         # total overhead here
         retrieval_ms = (time.perf_counter() - retrieval_start) * 1000
+
+        # Record retrieval duration metric
+        RETRIEVAL_DURATION.observe(retrieval_ms / 1000.0)
+
+        # Record top-1 relevance score
+        if chunks:
+            RETRIEVAL_SCORE.observe(chunks[0].relevance_score)
 
         # Build sources for the response (FR-17)
         sources = [
@@ -80,6 +99,19 @@ class RAGGenerator:
                 llm_response = await self._llm.generate(prompt)
                 answer_text = llm_response.text
                 generation_ms = (time.perf_counter() - gen_start) * 1000
+
+                # Record LLM duration metric
+                backend_name = self._llm.model_name
+                LLM_DURATION.labels(backend=backend_name).observe(generation_ms / 1000.0)
+
+                # Record LLM token usage
+                LLM_TOKENS_USED.labels(backend=backend_name, type="prompt").inc(
+                    llm_response.prompt_tokens
+                )
+                LLM_TOKENS_USED.labels(backend=backend_name, type="completion").inc(
+                    llm_response.completion_tokens
+                )
+
             except Exception as exc:
                 # Graceful degradation (TDD Section 7.4):
                 # Return sources without answer
@@ -92,6 +124,9 @@ class RAGGenerator:
                 )
 
         total_ms = (time.perf_counter() - total_start) * 1000
+
+        # Record total end-to-end duration
+        TOTAL_DURATION.observe(total_ms / 1000.0)
 
         return QueryResponse(
             answer=answer_text,

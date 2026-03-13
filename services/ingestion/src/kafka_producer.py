@@ -4,6 +4,7 @@ References:
   - TDD: FR-3 (publish to filings.raw topic with metadata)
   - TDD: Section 5.2.1 Kafka message schema
   - TDD: Section 5.3 Kafka topics (filings.raw)
+  - TDD: Section 8.1.1 (kafka publish counter)
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import structlog
 from confluent_kafka import KafkaError, Producer
 
 from src.config import settings
+from src.metrics import KAFKA_PUBLISH_TOTAL
 
 if TYPE_CHECKING:
     from src.edgar_client import Filing
@@ -28,12 +30,14 @@ TOPIC_FILINGS_RAW = "filings.raw"
 def _delivery_callback(err: KafkaError | None, msg: Any) -> None:
     """Callback invoked on message delivery (or failure)."""
     if err is not None:
+        KAFKA_PUBLISH_TOTAL.labels(topic=msg.topic(), status="error").inc()
         logger.error(
             "kafka_delivery_failed",
             topic=msg.topic(),
             error=str(err),
         )
     else:
+        KAFKA_PUBLISH_TOTAL.labels(topic=msg.topic(), status="success").inc()
         logger.debug(
             "kafka_delivery_success",
             topic=msg.topic(),

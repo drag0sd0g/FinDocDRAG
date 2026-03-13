@@ -7,17 +7,21 @@ References:
   - TDD: FR-1 (fetch 10-K filings from EFTS API by ticker)
   - TDD: FR-5 (log and skip filings that fail to parse)
   - TDD: NFR-4 (respect SEC rate limit of 10 req/s)
+  - TDD: Section 8.1.1 (EDGAR request duration histogram)
   - API docs: https://efts.sec.gov/LATEST/search-index
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
 import structlog
+
+from src.metrics import EDGAR_REQUEST_DURATION, FILINGS_FETCHED_TOTAL
 
 logger = structlog.get_logger()
 
@@ -78,12 +82,15 @@ class EdgarClient:
 
         for attempt in range(1, self.max_retries + 1):
             try:
+                t0 = time.perf_counter()
                 async with self._semaphore, session.get(
                     EDGAR_SEARCH_URL, params=params, headers=headers
                 ) as resp:
                     resp.raise_for_status()
                     data: dict[str, Any] = await resp.json(content_type=None)
                     await asyncio.sleep(1.0 / self.rate_limit_rps)
+                elapsed = time.perf_counter() - t0
+                EDGAR_REQUEST_DURATION.labels(ticker=ticker).observe(elapsed)
 
                 hits: list[dict[str, Any]] = data.get("hits", {}).get("hits", [])
                 logger.info(
@@ -194,6 +201,7 @@ class EdgarClient:
             accession = source.get("adsh", "")
             if not accession:
                 logger.warning("edgar_missing_accession", ticker=ticker)
+                FILINGS_FETCHED_TOTAL.labels(ticker=ticker, status="skipped").inc()
                 continue
 
             filing_date = source.get("file_date", "")
@@ -204,6 +212,7 @@ class EdgarClient:
             cik = ciks[0] if ciks else ""
             if not cik:
                 logger.warning("edgar_missing_cik", ticker=ticker, accession=accession)
+                FILINGS_FETCHED_TOTAL.labels(ticker=ticker, status="skipped").inc()
                 continue
 
             accession_no_dashes = accession.replace("-", "")
@@ -218,6 +227,7 @@ class EdgarClient:
                     ticker=ticker,
                     accession=accession,
                 )
+                FILINGS_FETCHED_TOTAL.labels(ticker=ticker, status="skipped").inc()
                 continue
 
             filings.append(

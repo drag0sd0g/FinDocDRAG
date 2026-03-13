@@ -10,6 +10,7 @@ global:
 scrape_configs:
   # ── Ingestion Service ────────────────────────────────────────
   - job_name: ingestion
+    metrics_path: /metrics
     static_configs:
       - targets:
           - ingestion:8001
@@ -18,6 +19,7 @@ scrape_configs:
 
   # ── Embedding Worker ─────────────────────────────────────────
   - job_name: embedding-worker
+    metrics_path: /metrics
     static_configs:
       - targets:
           - embedding-worker:8002
@@ -26,6 +28,7 @@ scrape_configs:
 
   # ── Query API ────────────────────────────────────────────────
   - job_name: query-api
+    metrics_path: /metrics
     static_configs:
       - targets:
           - query-api:8000

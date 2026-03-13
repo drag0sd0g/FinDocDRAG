@@ -3,11 +3,13 @@
 Endpoints:
   GET  /health         Liveness probe  (FR-21)
   GET  /ready          Readiness probe (FR-22)
+  GET  /metrics        Prometheus metrics (TDD: Section 8.1.3)
   POST /v1/query       RAG query       (FR-12 through FR-18)
   GET  /v1/documents   List filings    (FR-19, FR-20)
 
 References:
   - TDD: Section 5.2.3
+  - TDD: Section 8.1.3 (Query API Metrics)
   - TDD: Section 9.1 (API key auth)
   - TDD: Section 9.3 (rate limiting)
 """
@@ -22,6 +24,7 @@ from typing import TYPE_CHECKING
 import structlog
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from prometheus_client import make_asgi_app
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -29,6 +32,7 @@ from slowapi.util import get_remote_address
 from src.auth import verify_api_key
 from src.llm.ollama_backend import OllamaBackend
 from src.llm.openai_backend import OpenAIBackend
+from src.metrics import DEGRADED_RESPONSES_TOTAL, REQUESTS_TOTAL
 from src.models import (
     DocumentInfo,
     DocumentListResponse,
@@ -119,6 +123,10 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 
+# ── Mount Prometheus /metrics endpoint (TDD: Section 8.1) ────────
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
 
 # ── Error handler for rate limiting ──────────────────────────────
 
@@ -170,6 +178,13 @@ async def query(
         ticker_filter=body.ticker_filter,
     )
 
+    # Record Prometheus metrics (TDD Section 8.1.3)
+    status = "degraded" if result.degraded else "success"
+    REQUESTS_TOTAL.labels(endpoint="/v1/query", status=status).inc()
+
+    if result.degraded:
+        DEGRADED_RESPONSES_TOTAL.labels(reason="llm_unavailable").inc()
+
     logger.info(
         "query_completed",
         sources=len(result.sources),
@@ -195,6 +210,7 @@ async def list_documents(
     if _retriever is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
+    REQUESTS_TOTAL.labels(endpoint="/v1/documents", status="success").inc()
 
     conn = _retriever._get_conn()
     cur = conn.cursor()

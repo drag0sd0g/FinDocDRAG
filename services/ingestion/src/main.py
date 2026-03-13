@@ -3,11 +3,13 @@
 Endpoints:
   GET  /health       Liveness probe  (TDD: FR-21)
   GET  /ready        Readiness probe (TDD: FR-22)
+  GET  /metrics      Prometheus metrics (TDD: Section 8.1.1)
   POST /v1/ingest    Trigger filing ingestion (TDD: Section 5.2.1)
 
 References:
   - TDD: FR-1 through FR-5
   - TDD: Section 5.2.1 (Ingestion Service description)
+  - TDD: Section 8.1.1 (Ingestion Service Metrics)
 """
 
 from __future__ import annotations
@@ -20,11 +22,13 @@ import aiohttp
 import structlog
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
 from src.config import load_tickers, settings
 from src.edgar_client import EdgarClient
 from src.kafka_producer import FilingProducer
+from src.metrics import FILINGS_FETCHED_TOTAL, KAFKA_PUBLISH_TOTAL
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -97,6 +101,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Mount Prometheus /metrics endpoint (TDD: Section 8.1) ────────
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
 
 # ── Health & Readiness (FR-21, FR-22) ────────────────────────────
 
@@ -160,10 +168,12 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
                     #       Will be wired when DB pool is added.
                     _kafka_producer.publish_filing(filing)
                     filings_published += 1
+                    FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="success").inc()
 
             except Exception as exc:
                 error_msg = f"Error processing {symbol}: {exc}"
                 errors.append(error_msg)
+                FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="error").inc()
                 logger.error(
                     "ingest_ticker_error",
                     ticker=symbol,
