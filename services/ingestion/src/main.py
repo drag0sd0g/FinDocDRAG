@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from src.config import load_tickers, settings
 from src.edgar_client import EdgarClient
 from src.kafka_producer import FilingProducer
-from src.metrics import FILINGS_FETCHED_TOTAL, KAFKA_PUBLISH_TOTAL
+from src.metrics import FILINGS_FETCHED_TOTAL
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
