@@ -8,6 +8,7 @@ References:
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import psycopg2
@@ -70,8 +71,6 @@ class Retriever:
         Returns:
             (chunks, query_embedding, embedding_time_ms)
         """
-        import time
-
         # Step 1: Embed the query
         t0 = time.perf_counter()
         query_embedding = self.embed_query(question)

@@ -28,6 +28,9 @@ logger = structlog.get_logger()
 # EDGAR full-text search endpoint
 EDGAR_SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
 
+# Log a download-progress line every this many bytes
+_PROGRESS_LOG_INTERVAL = 5 * 1024 * 1024  # 5 MB
+
 
 @dataclass
 class Filing:
@@ -148,7 +151,6 @@ class EdgarClient:
                 chunks: list[bytes] = []
                 bytes_received = 0
                 last_log_bytes = 0
-                log_every = 5 * 1024 * 1024  # log a progress line every 5 MB
 
                 async with self._semaphore, session.get(filing_url, headers=headers) as resp:
                     resp.raise_for_status()
@@ -162,7 +164,7 @@ class EdgarClient:
                     async for chunk in resp.content.iter_chunked(1024 * 64):  # 64 KB chunks
                         chunks.append(chunk)
                         bytes_received += len(chunk)
-                        if bytes_received - last_log_bytes >= log_every:
+                        if bytes_received - last_log_bytes >= _PROGRESS_LOG_INTERVAL:
                             logger.info(
                                 "edgar_fetch_progress",
                                 url=filing_url,

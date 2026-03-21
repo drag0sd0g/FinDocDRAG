@@ -46,11 +46,15 @@ def _make_async_response(
         mock_resp.json = _json
 
     if text_data is not None:
+        text_bytes = text_data.encode("utf-8")
 
-        async def _text(**kwargs: Any) -> str:
-            return text_data
+        async def _iter_chunked(size: int):  # type: ignore[no-untyped-def]
+            yield text_bytes
 
-        mock_resp.text = _text
+        mock_content = MagicMock()
+        mock_content.iter_chunked = _iter_chunked
+        mock_resp.content = mock_content
+        mock_resp.content_length = len(text_bytes)
 
     @asynccontextmanager
     async def _ctx_manager(*args: Any, **kwargs: Any) -> AsyncGenerator[MagicMock, None]:

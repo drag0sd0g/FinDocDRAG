@@ -44,6 +44,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import os
 import sys
 from datetime import UTC, datetime
@@ -307,7 +308,7 @@ def compute_ragas_metrics(
 
 
 def _mean(values: list[float]) -> float:
-    finite = [v for v in values if v == v]  # exclude NaN
+    finite = [v for v in values if not math.isnan(v)]
     return sum(finite) / len(finite) if finite else float("nan")
 
 

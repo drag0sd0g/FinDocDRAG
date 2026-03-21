@@ -14,14 +14,12 @@ from __future__ import annotations
 
 import json
 import logging
-
-# ── Configuration ────────────────────────────────────────────────
 import os
 import threading
 import time
-from logging import LogRecord
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from logging import LogRecord
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -30,7 +28,7 @@ from confluent_kafka import Consumer, KafkaError, Producer
 from fastapi import FastAPI, HTTPException
 from prometheus_client import make_asgi_app
 
-from src.chunker import chunk_filing
+from src.chunker import Chunk, chunk_filing
 from src.embedder import Embedder
 from src.metrics import (
     BATCH_DURATION,
@@ -43,6 +41,8 @@ from src.store import ChunkStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
+# ── Configuration ────────────────────────────────────────────────
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 POSTGRES_DSN = (
@@ -60,6 +60,10 @@ TOPIC_EMBEDDED = "filings.embedded"
 TOPIC_DLQ = "filings.dlq"
 
 MAX_RETRIES = 3
+
+# Kafka consumer timeouts — embedding a large 10-K on CPU takes several minutes.
+_KAFKA_MAX_POLL_INTERVAL_MS = 1_800_000  # 30 minutes
+_KAFKA_SESSION_TIMEOUT_MS = 60_000       # 60 seconds
 
 # ── Structured logging ───────────────────────────────────────────
 
@@ -98,6 +102,34 @@ _consumer_thread: threading.Thread | None = None
 _shutdown_event = threading.Event()
 
 
+# ── DLQ helper ───────────────────────────────────────────────────
+
+def _publish_to_dlq(
+    producer: Producer,
+    msg_key: bytes | None,
+    error: str,
+    payload: dict[str, Any] | None = None,
+    retry_count: int = 0,
+) -> None:
+    """Publish a failed message to the dead-letter queue topic (ADR-010)."""
+    dlq_msg = {
+        "original_message": payload or {},
+        "error": error,
+        "failed_at": datetime.now(UTC).isoformat(),
+        "retry_count": retry_count,
+    }
+    try:
+        producer.produce(
+            topic=TOPIC_DLQ,
+            key=msg_key,
+            value=json.dumps(dlq_msg),
+        )
+        producer.poll(0)
+        DLQ_MESSAGES_TOTAL.inc()
+    except Exception as dlq_exc:
+        logger.error("dlq_publish_failed", error=str(dlq_exc))
+
+
 # ── Kafka consumer loop (runs in a background thread) ────────────
 
 def _consume_loop() -> None:
@@ -111,9 +143,8 @@ def _consume_loop() -> None:
             "auto.offset.reset": "earliest",
             "enable.auto.commit": False,
             # Chunking + embedding a large 10-K on CPU can take several minutes.
-            # Default 300 s is too short; 1800 s (30 min) gives ample headroom.
-            "max.poll.interval.ms": 1800000,
-            "session.timeout.ms": 60000,
+            "max.poll.interval.ms": _KAFKA_MAX_POLL_INTERVAL_MS,
+            "session.timeout.ms": _KAFKA_SESSION_TIMEOUT_MS,
         }
     )
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
@@ -133,30 +164,16 @@ def _consume_loop() -> None:
 
         # ── Step 1: Parse message ─────────────────────────────────────
         # Malformed messages cannot be retried — route straight to DLQ.
+        payload: dict[str, Any] | None = None
         try:
-            payload: dict[str, Any] = json.loads(msg.value().decode("utf-8"))
+            payload = json.loads(msg.value().decode("utf-8"))
             accession = payload["accession_number"]
             ticker = payload["ticker"]
             filing_date = payload["filing_date"]
             raw_text = payload["raw_text"]
         except Exception as parse_exc:
             logger.error("message_parse_failed", error=str(parse_exc))
-            try:
-                dlq_msg = {
-                    "original_message": {},
-                    "error": str(parse_exc),
-                    "failed_at": datetime.now(UTC).isoformat(),
-                    "retry_count": 0,
-                }
-                producer.produce(
-                    topic=TOPIC_DLQ,
-                    key=msg.key(),
-                    value=json.dumps(dlq_msg),
-                )
-                producer.poll(0)
-                DLQ_MESSAGES_TOTAL.inc()
-            except Exception as dlq_exc:
-                logger.error("dlq_publish_failed", error=str(dlq_exc))
+            _publish_to_dlq(producer, msg.key(), str(parse_exc))
             consumer.commit(msg)
             continue
 
@@ -166,7 +183,7 @@ def _consume_loop() -> None:
         # Attempt the full pipeline up to MAX_RETRIES + 1 times, sleeping
         # 2^(attempt+1) seconds between failures: 2 s, 4 s, 8 s → ~14 s max.
         last_exc: Exception | None = None
-        chunks: list[Any] = []
+        chunks: list[Chunk] = []
 
         for attempt in range(MAX_RETRIES + 1):
             try:
@@ -241,22 +258,10 @@ def _consume_loop() -> None:
         # ── Step 3: DLQ if all retries exhausted (ADR-010, TDD 7.3) ──
         if last_exc is not None:
             CHUNKS_PROCESSED_TOTAL.labels(ticker=ticker, status="error").inc()
-            try:
-                dlq_msg = {
-                    "original_message": payload,
-                    "error": str(last_exc),
-                    "failed_at": datetime.now(UTC).isoformat(),
-                    "retry_count": MAX_RETRIES,
-                }
-                producer.produce(
-                    topic=TOPIC_DLQ,
-                    key=msg.key(),
-                    value=json.dumps(dlq_msg),
-                )
-                producer.poll(0)
-                DLQ_MESSAGES_TOTAL.inc()
-            except Exception as dlq_exc:
-                logger.error("dlq_publish_failed", error=str(dlq_exc))
+            _publish_to_dlq(
+                producer, msg.key(), str(last_exc),
+                payload=payload, retry_count=MAX_RETRIES,
+            )
 
         # ── Step 4: Commit offset (always — success or DLQ) ──────────
         # TDD Section 7.2: only commit after the message is fully handled.

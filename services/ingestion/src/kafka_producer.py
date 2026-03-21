@@ -26,6 +26,8 @@ logger = structlog.get_logger()
 
 TOPIC_FILINGS_RAW = "filings.raw"
 
+_KAFKA_MAX_MESSAGE_BYTES = 20_971_520  # 20 MB — must match broker KAFKA_MESSAGE_MAX_BYTES
+
 
 def _delivery_callback(err: KafkaError | None, msg: Any) -> None:
     """Callback invoked on message delivery (or failure)."""
@@ -67,7 +69,7 @@ class FilingProducer:
                 "client.id": "ingestion-service",
                 "acks": "all",
                 "compression.type": "gzip",
-                "message.max.bytes": 20971520,
+                "message.max.bytes": _KAFKA_MAX_MESSAGE_BYTES,
             }
         )
 
