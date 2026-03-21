@@ -1,0 +1,195 @@
+suite: Grafana provisioning ConfigMaps
+templates:
+  - grafana-provisioning-configmap.yaml
+  - grafana-dashboards-configmap.yaml
+
+tests:
+  # ── grafana-provisioning-configmap.yaml ────────────────────────────────
+
+  - it: provisioning configmap renders one document when grafana enabled (default)
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: provisioning configmap renders no documents when grafana disabled
+    template: grafana-provisioning-configmap.yaml
+    set:
+      grafana.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: provisioning configmap has correct kind
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+
+  - it: provisioning configmap name includes release name
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-grafana-provisioning
+
+  - it: provisioning configmap is in configured namespace
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: findoc-rag
+
+  - it: provisioning configmap has component label grafana
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: grafana
+
+  - it: provisioning configmap contains prometheus.yaml datasource key
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - isNotEmpty:
+          path: data["prometheus.yaml"]
+
+  - it: provisioning configmap prometheus datasource points at release prometheus service
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yaml"]
+          pattern: "http://RELEASE-NAME-prometheus:9090"
+
+  - it: provisioning configmap prometheus datasource uid is prometheus
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yaml"]
+          pattern: "uid: prometheus"
+
+  - it: provisioning configmap prometheus datasource is set as default
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yaml"]
+          pattern: "isDefault: true"
+
+  - it: provisioning configmap prometheus datasource uses scrapeInterval from values
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yaml"]
+          pattern: "timeInterval: 15s"
+
+  - it: provisioning configmap prometheus datasource uses custom scrapeInterval
+    template: grafana-provisioning-configmap.yaml
+    set:
+      prometheus.scrapeInterval: 30s
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yaml"]
+          pattern: "timeInterval: 30s"
+
+  - it: provisioning configmap contains provider.yaml dashboard loader key
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - isNotEmpty:
+          path: data["provider.yaml"]
+
+  - it: provisioning configmap dashboard provider loads from /etc/grafana/dashboards
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["provider.yaml"]
+          pattern: "path: /etc/grafana/dashboards"
+
+  - it: provisioning configmap dashboard provider has 30s update interval
+    template: grafana-provisioning-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["provider.yaml"]
+          pattern: "updateIntervalSeconds: 30"
+
+  # ── grafana-dashboards-configmap.yaml ──────────────────────────────────
+
+  - it: dashboards configmap renders one document when grafana enabled (default)
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: dashboards configmap renders no documents when grafana disabled
+    template: grafana-dashboards-configmap.yaml
+    set:
+      grafana.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: dashboards configmap has correct kind
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+
+  - it: dashboards configmap name includes release name
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-grafana-dashboards
+
+  - it: dashboards configmap is in configured namespace
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: findoc-rag
+
+  - it: dashboards configmap has component label grafana
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: grafana
+
+  - it: dashboards configmap contains findoc-overview.json key
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - isNotEmpty:
+          path: data["findoc-overview.json"]
+
+  - it: dashboards configmap overview json has correct uid
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["findoc-overview.json"]
+          pattern: "findoc-rag-overview"
+
+  - it: dashboards configmap overview json references prometheus datasource uid
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["findoc-overview.json"]
+          pattern: '"uid": "prometheus"'
+
+  - it: dashboards configmap overview json includes query duration metric
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["findoc-overview.json"]
+          pattern: "findoc_query_duration_seconds"
+
+  - it: dashboards configmap overview json includes filing size metric
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["findoc-overview.json"]
+          pattern: "findoc_ingestion_filing_size_bytes"
+
+  - it: dashboards configmap overview json includes chunks per filing metric
+    template: grafana-dashboards-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["findoc-overview.json"]
+          pattern: "findoc_embedding_chunks_per_filing"

@@ -52,4 +52,22 @@ spec:
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 20
+          volumeMounts:
+            - name: grafana-provisioning
+              mountPath: /etc/grafana/provisioning
+            - name: grafana-dashboards
+              mountPath: /etc/grafana/dashboards
+              readOnly: true
+      volumes:
+        - name: grafana-provisioning
+          configMap:
+            name: {{ .Release.Name }}-grafana-provisioning
+            items:
+              - key: prometheus.yaml
+                path: datasources/prometheus.yaml
+              - key: provider.yaml
+                path: dashboards/provider.yaml
+        - name: grafana-dashboards
+          configMap:
+            name: {{ .Release.Name }}-grafana-dashboards
 {{- end }}

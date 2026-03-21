@@ -187,6 +187,69 @@ tests:
           path: spec.template.spec.containers[0].env[0].value
           value: supersecret
 
+  - it: grafana deployment mounts provisioning volume at /etc/grafana/provisioning
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].name
+          value: grafana-provisioning
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /etc/grafana/provisioning
+
+  - it: grafana deployment mounts dashboards volume at /etc/grafana/dashboards
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1].name
+          value: grafana-dashboards
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1].mountPath
+          value: /etc/grafana/dashboards
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1].readOnly
+          value: true
+
+  - it: grafana deployment provisioning volume references correct configmap
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: grafana-provisioning
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: RELEASE-NAME-grafana-provisioning
+
+  - it: grafana deployment provisioning volume maps prometheus.yaml to datasources subdir
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.items[0].key
+          value: prometheus.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.items[0].path
+          value: datasources/prometheus.yaml
+
+  - it: grafana deployment provisioning volume maps provider.yaml to dashboards subdir
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.items[1].key
+          value: provider.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.items[1].path
+          value: dashboards/provider.yaml
+
+  - it: grafana deployment dashboards volume references correct configmap
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].name
+          value: grafana-dashboards
+      - equal:
+          path: spec.template.spec.volumes[1].configMap.name
+          value: RELEASE-NAME-grafana-dashboards
+
   # ── ollama-deployment.yaml ─────────────────────────────────────────
   # Produces 2 documents: Deployment(0) + PVC(1)
 
