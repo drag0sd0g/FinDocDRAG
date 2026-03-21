@@ -44,7 +44,7 @@ class AnthropicBackend:
             messages=[{"role": "user", "content": prompt}],
         )
 
-        text = response.content[0].text if response.content else ""
+        text = next((b.text for b in response.content if b.type == "text"), "")
         usage = response.usage
 
         logger.info(

@@ -63,7 +63,7 @@ def load_tickers(path: str | Path) -> list[dict[str, str]]:
         return []
     with open(config_path) as f:
         data: dict[str, Any] = yaml.safe_load(f)
-    return data.get("tickers", [])
+    return list(data.get("tickers", []))
 
 
 # Module-level singleton — import this from other modules.

@@ -17,7 +17,7 @@ References:
 import logging
 import os
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from logging import LogRecord
 
@@ -146,13 +146,15 @@ app.add_middleware(SlowAPIMiddleware)
 # ── Request-ID middleware (TDD Section 8.3) ───────────────────────
 
 @app.middleware("http")
-async def _request_id_middleware(request: Request, call_next: object) -> Response:
+async def _request_id_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Attach a request_id to every request for log correlation (TDD 8.3)."""
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=request_id)
     request.state.request_id = request_id
-    response = await call_next(request)  # type: ignore[operator]
+    response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     return response
 

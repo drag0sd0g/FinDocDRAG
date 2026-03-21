@@ -22,11 +22,11 @@ setup:  ## Create virtual environments and install dependencies
 
 test:  ## Run pytest for all services
 	@echo "==> Testing ingestion service..."
-	cd services/ingestion && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=0
+	cd services/ingestion && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=80
 	@echo "==> Testing embedding worker..."
-	cd services/embedding-worker && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=0
+	cd services/embedding-worker && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=80
 	@echo "==> Testing query API..."
-	cd services/query-api && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=0
+	cd services/query-api && PYTHONPATH=. .venv/bin/python -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=80
 
 lint:  ## Run ruff + mypy for all services
 	@echo "==> Linting with ruff..."

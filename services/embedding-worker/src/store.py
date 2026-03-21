@@ -98,7 +98,7 @@ class ChunkStore:
             inserted = cur.rowcount
             conn.commit()
             logger.info("chunks_stored", count=inserted, total=len(chunks))
-            return inserted
+            return int(inserted)
         except Exception:
             conn.rollback()
             raise

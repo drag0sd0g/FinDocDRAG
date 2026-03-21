@@ -36,7 +36,7 @@ class Embedder:
     @property
     def dimension(self) -> int:
         """Return the embedding vector dimension (384 for MiniLM-L6-v2)."""
-        return int(self._dimension)
+        return int(self._dimension or 0)
 
     def embed(self, texts: list[str], batch_size: int = DEFAULT_BATCH_SIZE) -> list[list[float]]:
         """Generate embeddings for a list of texts.
