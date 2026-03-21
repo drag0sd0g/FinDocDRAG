@@ -260,41 +260,7 @@ async def list_documents(
 
     REQUESTS_TOTAL.labels(endpoint="/v1/documents", status="success").inc()
 
-    conn = _retriever._get_conn()
-    cur = conn.cursor()
-
-    try:
-        # Count total
-        if ticker:
-            cur.execute("SELECT COUNT(*) FROM ingestion_log WHERE ticker = %s", (ticker,))
-        else:
-            cur.execute("SELECT COUNT(*) FROM ingestion_log")
-        total = cur.fetchone()[0]
-
-        # Fetch page
-        if ticker:
-            cur.execute(
-                """SELECT accession_number, ticker, company_name, filing_date,
-                          filing_type, chunk_count, ingested_at
-                   FROM ingestion_log
-                   WHERE ticker = %s
-                   ORDER BY filing_date DESC
-                   LIMIT %s OFFSET %s""",
-                (ticker, limit, offset),
-            )
-        else:
-            cur.execute(
-                """SELECT accession_number, ticker, company_name, filing_date,
-                          filing_type, chunk_count, ingested_at
-                   FROM ingestion_log
-                   ORDER BY filing_date DESC
-                   LIMIT %s OFFSET %s""",
-                (limit, offset),
-            )
-
-        rows = cur.fetchall()
-    finally:
-        cur.close()
+    rows, total = _retriever.list_documents(ticker=ticker, limit=limit, offset=offset)
 
     documents = [
         DocumentInfo(

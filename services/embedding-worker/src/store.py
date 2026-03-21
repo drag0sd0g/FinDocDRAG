@@ -48,7 +48,8 @@ class ChunkStore:
     def _get_conn(self) -> psycopg2.extensions.connection:
         if self._conn is None or self._conn.closed:
             self.connect()
-        assert self._conn is not None
+        if self._conn is None:
+            raise RuntimeError("Failed to establish database connection")
         return self._conn
 
     def store_chunks(

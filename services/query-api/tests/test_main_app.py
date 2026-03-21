@@ -200,17 +200,14 @@ class TestDocumentsEndpoint:
 
         import src.main as main_mod
 
-        mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = (2,)
-        mock_cur.fetchall.return_value = [
-            ("0001-24-000001", "AAPL", "Apple Inc.", "2024-11-01", "10-K", 10, "2024-11-15"),
-            ("0001-24-000002", "MSFT", "Microsoft Corp.", "2024-10-15", "10-K", 8, "2024-10-20"),
-        ]
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-
         mock_retriever = MagicMock()
-        mock_retriever._get_conn.return_value = mock_conn
+        mock_retriever.list_documents.return_value = (
+            [
+                ("0001-24-000001", "AAPL", "Apple Inc.", "2024-11-01", "10-K", 10, "2024-11-15"),
+                ("0001-24-000002", "MSFT", "Microsoft Corp.", "2024-10-15", "10-K", 8, "2024-10-20"),
+            ],
+            2,
+        )
 
         original_retriever = main_mod._retriever
         original_generator = main_mod._generator
@@ -235,16 +232,13 @@ class TestDocumentsEndpoint:
 
         import src.main as main_mod
 
-        mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = (1,)
-        mock_cur.fetchall.return_value = [
-            ("0001-24-000001", "AAPL", "Apple Inc.", "2024-11-01", "10-K", 10, "2024-11-15"),
-        ]
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-
         mock_retriever = MagicMock()
-        mock_retriever._get_conn.return_value = mock_conn
+        mock_retriever.list_documents.return_value = (
+            [
+                ("0001-24-000001", "AAPL", "Apple Inc.", "2024-11-01", "10-K", 10, "2024-11-15"),
+            ],
+            1,
+        )
 
         original_retriever = main_mod._retriever
         original_generator = main_mod._generator
@@ -260,9 +254,10 @@ class TestDocumentsEndpoint:
             assert data["total"] == 1
             assert data["documents"][0]["ticker"] == "AAPL"
 
-            # Verify the SQL used ticker filter
-            execute_calls = mock_cur.execute.call_args_list
-            assert any("ticker = %s" in str(c) for c in execute_calls)
+            # Verify the ticker filter was forwarded to the retriever
+            mock_retriever.list_documents.assert_called_once_with(
+                ticker="AAPL", limit=20, offset=0
+            )
         finally:
             main_mod._retriever = original_retriever
             main_mod._generator = original_generator
@@ -272,16 +267,13 @@ class TestDocumentsEndpoint:
 
         import src.main as main_mod
 
-        mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = (5,)
-        mock_cur.fetchall.return_value = [
-            ("0001-24-000003", "AAPL", "Apple Inc.", "2024-09-01", "10-K", 7, "2024-09-10"),
-        ]
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_cur
-
         mock_retriever = MagicMock()
-        mock_retriever._get_conn.return_value = mock_conn
+        mock_retriever.list_documents.return_value = (
+            [
+                ("0001-24-000003", "AAPL", "Apple Inc.", "2024-09-01", "10-K", 7, "2024-09-10"),
+            ],
+            5,
+        )
 
         original_retriever = main_mod._retriever
         original_generator = main_mod._generator

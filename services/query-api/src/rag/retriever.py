@@ -3,6 +3,7 @@
 References:
   - TDD: FR-13 (embed query, retrieve top-k via cosine distance,
                  optional ticker filter)
+  - TDD: FR-19, FR-20 (list ingested filings)
   - TDD: NFR-1 (retrieval within 200ms at p99)
 """
 
@@ -48,7 +49,8 @@ class Retriever:
     def _get_conn(self) -> psycopg2.extensions.connection:
         if self._conn is None or self._conn.closed:
             self.connect()
-        assert self._conn is not None
+        if self._conn is None:
+            raise RuntimeError("Failed to establish database connection")
         return self._conn
 
     def embed_query(self, question: str) -> list[float]:
@@ -102,9 +104,11 @@ class Retriever:
             """
             params = (query_embedding, query_embedding, top_k)
 
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-        cur.close()
+        try:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        finally:
+            cur.close()
 
         chunks: list[RetrievedChunk] = []
         for row in rows:
@@ -128,3 +132,46 @@ class Retriever:
         )
 
         return chunks, query_embedding, embedding_ms
+
+    def list_documents(
+        self,
+        ticker: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[tuple[Any, ...]], int]:
+        """Return a page of ingested filings from ingestion_log (FR-19, FR-20)."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            if ticker:
+                cur.execute(
+                    "SELECT COUNT(*) FROM ingestion_log WHERE ticker = %s",
+                    (ticker,),
+                )
+            else:
+                cur.execute("SELECT COUNT(*) FROM ingestion_log")
+            total: int = cur.fetchone()[0]
+
+            if ticker:
+                cur.execute(
+                    """SELECT accession_number, ticker, company_name, filing_date,
+                              filing_type, chunk_count, ingested_at
+                       FROM ingestion_log
+                       WHERE ticker = %s
+                       ORDER BY filing_date DESC
+                       LIMIT %s OFFSET %s""",
+                    (ticker, limit, offset),
+                )
+            else:
+                cur.execute(
+                    """SELECT accession_number, ticker, company_name, filing_date,
+                              filing_type, chunk_count, ingested_at
+                       FROM ingestion_log
+                       ORDER BY filing_date DESC
+                       LIMIT %s OFFSET %s""",
+                    (limit, offset),
+                )
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+        return rows, total

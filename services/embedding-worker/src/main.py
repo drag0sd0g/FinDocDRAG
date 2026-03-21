@@ -132,6 +132,85 @@ def _publish_to_dlq(
         logger.error("dlq_publish_failed", error=str(dlq_exc))
 
 
+# ── Filing processor (single attempt, no retries) ────────────────
+
+def _process_filing(
+    accession: str,
+    ticker: str,
+    filing_date: str,
+    raw_text: str,
+    embedder: Embedder,
+    store: ChunkStore,
+    producer: Producer,
+) -> list[Chunk]:
+    """Chunk, embed, store, and publish one filing (single attempt).
+
+    Returns the list of chunks produced. Returns an empty list when the
+    filing yields no chunks — this is not an error condition.
+    Raises on any processing failure so the caller can retry.
+    """
+    chunks = chunk_filing(
+        raw_text=raw_text,
+        accession_number=accession,
+        ticker=ticker,
+        filing_date=filing_date,
+    )
+
+    if not chunks:
+        logger.warning("no_chunks_produced", accession=accession)
+        return chunks
+
+    # Record token distribution (TDD Section 8.1.2)
+    for c in chunks:
+        CHUNK_TOKENS.observe(c.token_count)
+
+    # Embed (with batch duration timing)
+    texts = [c.text for c in chunks]
+    t0 = time.perf_counter()
+    embeddings = embedder.embed(texts)
+    embed_elapsed = time.perf_counter() - t0
+    BATCH_DURATION.observe(embed_elapsed)
+
+    # Store
+    store.store_chunks(chunks, embeddings)
+    store.update_ingestion_status(accession, len(chunks))
+
+    CHUNKS_PROCESSED_TOTAL.labels(ticker=ticker, status="success").inc(len(chunks))
+
+    # Publish confirmation to filings.embedded (FR-11)
+    confirmation = {
+        "accession_number": accession,
+        "chunk_ids": [c.chunk_id for c in chunks],
+        "chunk_count": len(chunks),
+        "processed_at": datetime.now(UTC).isoformat(),
+    }
+    producer.produce(
+        topic=TOPIC_EMBEDDED,
+        key=accession,
+        value=json.dumps(confirmation),
+    )
+    producer.poll(0)
+
+    return chunks
+
+
+# ── Kafka lag reporter (best-effort) ─────────────────────────────
+
+def _update_kafka_lag(consumer: Consumer) -> None:
+    """Update the Kafka lag gauge for all assigned partitions (best-effort)."""
+    try:
+        partitions = consumer.assignment()
+        for tp in partitions:
+            (lo, hi) = consumer.get_watermark_offsets(tp, cached=True)
+            committed = consumer.committed([tp])[0].offset
+            if committed >= 0 and hi >= 0:
+                KAFKA_LAG.labels(partition=str(tp.partition)).set(
+                    max(0, hi - committed)
+                )
+    except Exception:
+        pass  # lag reporting is best-effort
+
+
 # ── Kafka consumer loop (runs in a background thread) ────────────
 
 def _consume_loop() -> None:
@@ -189,52 +268,21 @@ def _consume_loop() -> None:
 
         for attempt in range(MAX_RETRIES + 1):
             try:
-                chunks = chunk_filing(
-                    raw_text=raw_text,
-                    accession_number=accession,
+                if _embedder is None:
+                    raise RuntimeError("Embedder not initialized")
+                if _store is None:
+                    raise RuntimeError("Store not initialized")
+                chunks = _process_filing(
+                    accession=accession,
                     ticker=ticker,
                     filing_date=filing_date,
+                    raw_text=raw_text,
+                    embedder=_embedder,
+                    store=_store,
+                    producer=producer,
                 )
-
-                if not chunks:
-                    logger.warning("no_chunks_produced", accession=accession)
-                    break
-
-                # Record token distribution (TDD Section 8.1.2)
-                for c in chunks:
-                    CHUNK_TOKENS.observe(c.token_count)
-
-                # Embed (with batch duration timing)
-                assert _embedder is not None
-                texts = [c.text for c in chunks]
-                t0 = time.perf_counter()
-                embeddings = _embedder.embed(texts)
-                embed_elapsed = time.perf_counter() - t0
-                BATCH_DURATION.observe(embed_elapsed)
-
-                # Store
-                assert _store is not None
-                _store.store_chunks(chunks, embeddings)
-                _store.update_ingestion_status(accession, len(chunks))
-
-                CHUNKS_PROCESSED_TOTAL.labels(ticker=ticker, status="success").inc(len(chunks))
-
-                # Publish confirmation to filings.embedded (FR-11)
-                confirmation = {
-                    "accession_number": accession,
-                    "chunk_ids": [c.chunk_id for c in chunks],
-                    "chunk_count": len(chunks),
-                    "processed_at": datetime.now(UTC).isoformat(),
-                }
-                producer.produce(
-                    topic=TOPIC_EMBEDDED,
-                    key=accession,
-                    value=json.dumps(confirmation),
-                )
-                producer.poll(0)
-
                 last_exc = None
-                break  # success
+                break  # success (or empty chunks — not an error)
 
             except Exception as exc:
                 last_exc = exc
@@ -270,19 +318,7 @@ def _consume_loop() -> None:
         consumer.commit(msg)
 
         if last_exc is None and chunks:
-            # Update Kafka lag gauge (best-effort, success path only)
-            try:
-                partitions = consumer.assignment()
-                for tp in partitions:
-                    (lo, hi) = consumer.get_watermark_offsets(tp, cached=True)
-                    committed = consumer.committed([tp])[0].offset
-                    if committed >= 0 and hi >= 0:
-                        KAFKA_LAG.labels(partition=str(tp.partition)).set(
-                            max(0, hi - committed)
-                        )
-            except Exception:
-                pass  # lag reporting is best-effort
-
+            _update_kafka_lag(consumer)
             logger.info(
                 "filing_processed",
                 accession=accession,

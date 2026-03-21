@@ -45,19 +45,22 @@ class IngestionDB:
     def _get_conn(self) -> psycopg2.extensions.connection:
         if self._conn is None or self._conn.closed:
             self.connect()
-        assert self._conn is not None
+        if self._conn is None:
+            raise RuntimeError("Failed to establish database connection")
         return self._conn
 
     def is_already_ingested(self, accession_number: str) -> bool:
         """Return True if the accession number already exists in ingestion_log (FR-4)."""
         conn = self._get_conn()
         cur = conn.cursor()
-        cur.execute(
-            "SELECT 1 FROM ingestion_log WHERE accession_number = %s",
-            (accession_number,),
-        )
-        result = cur.fetchone()
-        cur.close()
+        try:
+            cur.execute(
+                "SELECT 1 FROM ingestion_log WHERE accession_number = %s",
+                (accession_number,),
+            )
+            result = cur.fetchone()
+        finally:
+            cur.close()
         return result is not None
 
     def record_ingestion(self, filing: Filing) -> None:
@@ -67,24 +70,26 @@ class IngestionDB:
         """
         conn = self._get_conn()
         cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO ingestion_log
-                (accession_number, ticker, company_name, filing_date,
-                 filing_type, source_url, status)
-            VALUES (%s, %s, %s, %s, %s, %s, 'PUBLISHED')
-            ON CONFLICT (accession_number) DO NOTHING
-            """,
-            (
-                filing.accession_number,
-                filing.ticker,
-                filing.company_name,
-                filing.filing_date,
-                filing.filing_type,
-                filing.source_url,
-            ),
-        )
-        cur.close()
+        try:
+            cur.execute(
+                """
+                INSERT INTO ingestion_log
+                    (accession_number, ticker, company_name, filing_date,
+                     filing_type, source_url, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'PUBLISHED')
+                ON CONFLICT (accession_number) DO NOTHING
+                """,
+                (
+                    filing.accession_number,
+                    filing.ticker,
+                    filing.company_name,
+                    filing.filing_date,
+                    filing.filing_type,
+                    filing.source_url,
+                ),
+            )
+        finally:
+            cur.close()
         logger.info(
             "ingestion_recorded",
             accession=filing.accession_number,
