@@ -26,6 +26,7 @@ from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
 from src.config import load_tickers, settings
+from src.db import IngestionDB
 from src.edgar_client import EdgarClient
 from src.kafka_producer import FilingProducer
 from src.metrics import FILINGS_FETCHED_TOTAL
@@ -71,12 +72,13 @@ class IngestResponse(BaseModel):
 
 _edgar_client: EdgarClient | None = None
 _kafka_producer: FilingProducer | None = None
+_db: IngestionDB | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown lifecycle."""
-    global _edgar_client, _kafka_producer  # noqa: PLW0603
+    global _edgar_client, _kafka_producer, _db  # noqa: PLW0603
 
     logger.info("ingestion_service_starting")
 
@@ -85,6 +87,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         rate_limit_rps=settings.edgar_rate_limit_rps,
     )
     _kafka_producer = FilingProducer()
+    _db = IngestionDB(dsn=settings.postgres_dsn)
+    _db.connect()
 
     logger.info("ingestion_service_started")
 
@@ -92,6 +96,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if _kafka_producer is not None:
         _kafka_producer.flush()
+    if _db is not None:
+        _db.close()
     logger.info("ingestion_service_stopped")
 
 
@@ -117,7 +123,7 @@ async def health() -> dict[str, str]:
 @app.get("/ready")
 async def ready() -> dict[str, str]:
     """Readiness probe — ready only when dependencies are initialised."""
-    if _edgar_client is None or _kafka_producer is None:
+    if _edgar_client is None or _kafka_producer is None or _db is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
     return {"status": "ready"}
 
@@ -131,7 +137,7 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
     If ``tickers`` is provided in the request body, ingest those.
     Otherwise fall back to ``config/tickers.yml`` (FR-2).
     """
-    if _edgar_client is None or _kafka_producer is None:
+    if _edgar_client is None or _kafka_producer is None or _db is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     # Determine which tickers to process
@@ -164,9 +170,19 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
                 )
 
                 for filing in filings:
-                    # TODO: Check ingestion_log for dedup (FR-4).
-                    #       Will be wired when DB pool is added.
+                    # Deduplication check (FR-4): skip if already ingested.
+                    if _db.is_already_ingested(filing.accession_number):
+                        filings_skipped += 1
+                        FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="skipped").inc()
+                        logger.info(
+                            "filing_skipped_duplicate",
+                            accession=filing.accession_number,
+                            ticker=symbol,
+                        )
+                        continue
+
                     _kafka_producer.publish_filing(filing)
+                    _db.record_ingestion(filing)
                     filings_published += 1
                     FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="success").inc()
 

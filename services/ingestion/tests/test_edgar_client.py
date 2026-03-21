@@ -462,15 +462,17 @@ class TestFastAPIApp:
             main_module._kafka_producer = original_kafka
 
     def test_ready_endpoint_initialized(self) -> None:
-        """GET /ready returns ready when dependencies are set."""
+        """GET /ready returns ready when all dependencies are set."""
         from fastapi.testclient import TestClient
 
         import src.main as main_module
 
         original_edgar = main_module._edgar_client
         original_kafka = main_module._kafka_producer
+        original_db = main_module._db
         main_module._edgar_client = MagicMock()
         main_module._kafka_producer = MagicMock()
+        main_module._db = MagicMock()
 
         try:
             client = TestClient(app=main_module.app, raise_server_exceptions=False)
@@ -480,6 +482,7 @@ class TestFastAPIApp:
         finally:
             main_module._edgar_client = original_edgar
             main_module._kafka_producer = original_kafka
+            main_module._db = original_db
 
     def test_ingest_not_initialized(self) -> None:
         """POST /v1/ingest returns 503 when not initialized."""
@@ -508,8 +511,10 @@ class TestFastAPIApp:
 
         original_edgar = main_module._edgar_client
         original_kafka = main_module._kafka_producer
+        original_db = main_module._db
         main_module._edgar_client = MagicMock()
         main_module._kafka_producer = MagicMock()
+        main_module._db = MagicMock()
 
         try:
             with patch("src.main.load_tickers", return_value=[]):
@@ -519,15 +524,17 @@ class TestFastAPIApp:
         finally:
             main_module._edgar_client = original_edgar
             main_module._kafka_producer = original_kafka
+            main_module._db = original_db
 
     def test_ingest_success_with_tickers(self) -> None:
-        """POST /v1/ingest processes tickers and returns results."""
+        """POST /v1/ingest publishes new filings and records them in ingestion_log."""
         from fastapi.testclient import TestClient
 
         import src.main as main_module
 
         mock_edgar = MagicMock()
         mock_kafka = MagicMock()
+        mock_db = MagicMock()
 
         filing = Filing(
             accession_number="0001-24-000001",
@@ -539,15 +546,17 @@ class TestFastAPIApp:
             raw_text="Item 1...",
         )
 
-        # get_filings_for_ticker is async, so use AsyncMock
         mock_edgar.get_filings_for_ticker = AsyncMock(return_value=[filing])
         mock_kafka.publish_filing = MagicMock()
         mock_kafka.flush = MagicMock()
+        mock_db.is_already_ingested.return_value = False
 
         original_edgar = main_module._edgar_client
         original_kafka = main_module._kafka_producer
+        original_db = main_module._db
         main_module._edgar_client = mock_edgar
         main_module._kafka_producer = mock_kafka
+        main_module._db = mock_db
 
         try:
             client = TestClient(app=main_module.app, raise_server_exceptions=False)
@@ -557,10 +566,14 @@ class TestFastAPIApp:
             assert data["status"] == "completed"
             assert data["tickers_processed"] == ["AAPL"]
             assert data["filings_published"] == 1
+            assert data["filings_skipped"] == 0
             assert data["errors"] == []
+            mock_kafka.publish_filing.assert_called_once_with(filing)
+            mock_db.record_ingestion.assert_called_once_with(filing)
         finally:
             main_module._edgar_client = original_edgar
             main_module._kafka_producer = original_kafka
+            main_module._db = original_db
 
     def test_ingest_handles_ticker_error(self) -> None:
         """POST /v1/ingest captures per-ticker errors without crashing."""
@@ -570,14 +583,17 @@ class TestFastAPIApp:
 
         mock_edgar = MagicMock()
         mock_kafka = MagicMock()
+        mock_db = MagicMock()
 
         mock_edgar.get_filings_for_ticker = AsyncMock(side_effect=RuntimeError("EDGAR down"))
         mock_kafka.flush = MagicMock()
 
         original_edgar = main_module._edgar_client
         original_kafka = main_module._kafka_producer
+        original_db = main_module._db
         main_module._edgar_client = mock_edgar
         main_module._kafka_producer = mock_kafka
+        main_module._db = mock_db
 
         try:
             client = TestClient(app=main_module.app, raise_server_exceptions=False)
@@ -591,6 +607,7 @@ class TestFastAPIApp:
         finally:
             main_module._edgar_client = original_edgar
             main_module._kafka_producer = original_kafka
+            main_module._db = original_db
 
     def test_ingest_with_config_file_tickers(self) -> None:
         """POST /v1/ingest falls back to config/tickers.yml when no tickers in body."""
@@ -600,13 +617,16 @@ class TestFastAPIApp:
 
         mock_edgar = MagicMock()
         mock_kafka = MagicMock()
+        mock_db = MagicMock()
         mock_edgar.get_filings_for_ticker = AsyncMock(return_value=[])
         mock_kafka.flush = MagicMock()
 
         original_edgar = main_module._edgar_client
         original_kafka = main_module._kafka_producer
+        original_db = main_module._db
         main_module._edgar_client = mock_edgar
         main_module._kafka_producer = mock_kafka
+        main_module._db = mock_db
 
         try:
             with patch("src.main.load_tickers", return_value=[
@@ -620,3 +640,106 @@ class TestFastAPIApp:
         finally:
             main_module._edgar_client = original_edgar
             main_module._kafka_producer = original_kafka
+            main_module._db = original_db
+
+    def test_ingest_skips_already_ingested_filing(self) -> None:
+        """POST /v1/ingest skips filings already present in ingestion_log (FR-4)."""
+        from fastapi.testclient import TestClient
+
+        import src.main as main_module
+
+        mock_edgar = MagicMock()
+        mock_kafka = MagicMock()
+        mock_db = MagicMock()
+
+        filing = Filing(
+            accession_number="0001-24-000001",
+            ticker="AAPL",
+            company_name="AAPL",
+            filing_date="2024-11-01",
+            filing_type="10-K",
+            source_url="https://sec.gov/...",
+            raw_text="Item 1...",
+        )
+
+        mock_edgar.get_filings_for_ticker = AsyncMock(return_value=[filing])
+        mock_kafka.flush = MagicMock()
+        # Simulate filing already present in ingestion_log
+        mock_db.is_already_ingested.return_value = True
+
+        original_edgar = main_module._edgar_client
+        original_kafka = main_module._kafka_producer
+        original_db = main_module._db
+        main_module._edgar_client = mock_edgar
+        main_module._kafka_producer = mock_kafka
+        main_module._db = mock_db
+
+        try:
+            client = TestClient(app=main_module.app, raise_server_exceptions=False)
+            response = client.post("/v1/ingest", json={"tickers": ["AAPL"]})
+            assert response.status_code == 200
+            data = response.json()
+            assert data["filings_published"] == 0
+            assert data["filings_skipped"] == 1
+            # Kafka and DB record must NOT be called for duplicate filings
+            mock_kafka.publish_filing.assert_not_called()
+            mock_db.record_ingestion.assert_not_called()
+        finally:
+            main_module._edgar_client = original_edgar
+            main_module._kafka_producer = original_kafka
+            main_module._db = original_db
+
+    def test_ingest_mixed_new_and_duplicate_filings(self) -> None:
+        """POST /v1/ingest publishes new filings and skips duplicates in the same run."""
+        from fastapi.testclient import TestClient
+
+        import src.main as main_module
+
+        mock_edgar = MagicMock()
+        mock_kafka = MagicMock()
+        mock_db = MagicMock()
+
+        new_filing = Filing(
+            accession_number="0001-24-000001",
+            ticker="AAPL",
+            company_name="AAPL",
+            filing_date="2024-11-01",
+            filing_type="10-K",
+            source_url="https://sec.gov/1",
+            raw_text="Item 1...",
+        )
+        dup_filing = Filing(
+            accession_number="0001-23-000001",
+            ticker="AAPL",
+            company_name="AAPL",
+            filing_date="2023-11-01",
+            filing_type="10-K",
+            source_url="https://sec.gov/2",
+            raw_text="Item 1 old...",
+        )
+
+        mock_edgar.get_filings_for_ticker = AsyncMock(return_value=[new_filing, dup_filing])
+        mock_kafka.flush = MagicMock()
+        # new_filing is new, dup_filing is already ingested
+        mock_db.is_already_ingested.side_effect = lambda acc: acc == dup_filing.accession_number
+
+        original_edgar = main_module._edgar_client
+        original_kafka = main_module._kafka_producer
+        original_db = main_module._db
+        main_module._edgar_client = mock_edgar
+        main_module._kafka_producer = mock_kafka
+        main_module._db = mock_db
+
+        try:
+            client = TestClient(app=main_module.app, raise_server_exceptions=False)
+            response = client.post("/v1/ingest", json={"tickers": ["AAPL"]})
+            assert response.status_code == 200
+            data = response.json()
+            assert data["filings_published"] == 1
+            assert data["filings_skipped"] == 1
+            mock_kafka.publish_filing.assert_called_once_with(new_filing)
+            mock_db.record_ingestion.assert_called_once_with(new_filing)
+        finally:
+            main_module._edgar_client = original_edgar
+            main_module._kafka_producer = original_kafka
+            main_module._db = original_db
