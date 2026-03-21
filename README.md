@@ -188,7 +188,7 @@ All configuration is driven by environment variables. See `.env.example` for the
 
 ## LLM Backends
 
-The Query API supports two LLM backends, selectable via the `LLM_BACKEND` environment variable:
+The Query API supports 3 LLM backends, selectable via the `LLM_BACKEND` environment variable:
 
 **Ollama (default)** -- Runs locally inside the Docker Compose stack. No API key required. The model is pulled automatically on first start. Start with `make run` (or `docker compose --profile local-llm up`). Suitable for development and self-hosted deployments. Requires ~6 GB RAM for `mistral:7b`.
 
