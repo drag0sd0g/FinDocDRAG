@@ -64,10 +64,12 @@ tests:
           value: Never
 
   - it: CronJob uses embedding-worker image
+    set:
+      driftDetection.image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:test
     asserts:
       - equal:
           path: spec.jobTemplate.spec.template.spec.containers[0].image
-          value: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:latest
+          value: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:test
 
   - it: CronJob runs drift_detector module
     asserts:

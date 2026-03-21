@@ -38,10 +38,12 @@ tests:
 
   - it: ingestion deployment uses configured image
     template: ingestion-deployment.yaml
+    set:
+      ingestion.image: ghcr.io/drag0sd0g/findoc-rag/ingestion:test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/drag0sd0g/findoc-rag/ingestion:latest
+          value: ghcr.io/drag0sd0g/findoc-rag/ingestion:test
 
   - it: ingestion deployment exposes correct port
     template: ingestion-deployment.yaml
@@ -122,10 +124,12 @@ tests:
 
   - it: embedding-worker deployment uses correct image
     template: embedding-worker-deployment.yaml
+    set:
+      embeddingWorker.image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:latest
+          value: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:test
 
   - it: embedding-worker deployment exposes port 8002
     template: embedding-worker-deployment.yaml
@@ -174,10 +178,12 @@ tests:
 
   - it: query-api deployment uses correct image
     template: query-api-deployment.yaml
+    set:
+      queryApi.image: ghcr.io/drag0sd0g/findoc-rag/query-api:test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/drag0sd0g/findoc-rag/query-api:latest
+          value: ghcr.io/drag0sd0g/findoc-rag/query-api:test
 
   - it: query-api deployment exposes port 8000
     template: query-api-deployment.yaml
