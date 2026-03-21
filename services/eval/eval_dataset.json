@@ -1,0 +1,152 @@
+[
+  {
+    "question": "What was Apple's total net revenue for fiscal year 2024?",
+    "ground_truth": "Apple's total net revenue for fiscal year 2024 was approximately $391 billion.",
+    "ticker": "AAPL"
+  },
+  {
+    "question": "What are Apple's primary supply chain risk factors disclosed in its 10-K?",
+    "ground_truth": "Apple's 10-K identifies concentration of manufacturing in Asia, particularly China, as a primary supply chain risk, including geopolitical tensions, trade restrictions, and reliance on a limited number of suppliers for key components.",
+    "ticker": "AAPL"
+  },
+  {
+    "question": "What was Apple's Services segment revenue in fiscal year 2024?",
+    "ground_truth": "Apple's Services segment revenue for fiscal year 2024 was approximately $96 billion, encompassing the App Store, Apple Music, iCloud, Apple TV+, and other subscription offerings.",
+    "ticker": "AAPL"
+  },
+  {
+    "question": "How much did Apple spend on research and development in fiscal year 2024?",
+    "ground_truth": "Apple's research and development expenses for fiscal year 2024 were approximately $31 billion.",
+    "ticker": "AAPL"
+  },
+  {
+    "question": "Which geographic markets contribute most to Apple's net revenue?",
+    "ground_truth": "The Americas is Apple's largest geographic segment, followed by Europe and Greater China. The United States represents the single largest country market.",
+    "ticker": "AAPL"
+  },
+  {
+    "question": "What competitive risks does Apple identify in its annual filing?",
+    "ground_truth": "Apple identifies intense competition across all product and service categories, including from Android-based smartphone manufacturers, PC makers, and streaming and digital services platforms, along with the risk that competitors may offer lower-priced alternatives.",
+    "ticker": "AAPL"
+  },
+  {
+    "question": "What was Microsoft's total revenue for fiscal year 2024?",
+    "ground_truth": "Microsoft's total revenue for fiscal year 2024 was approximately $245 billion.",
+    "ticker": "MSFT"
+  },
+  {
+    "question": "What was the revenue from Microsoft's Intelligent Cloud segment in fiscal year 2024?",
+    "ground_truth": "Microsoft's Intelligent Cloud segment, which includes Azure, generated approximately $105 billion in revenue for fiscal year 2024.",
+    "ticker": "MSFT"
+  },
+  {
+    "question": "What are the key competition-related risk factors Microsoft identifies in its 10-K?",
+    "ground_truth": "Microsoft identifies competition from large technology companies including Google, Amazon, Apple, and Meta across cloud, search, productivity, and gaming segments, along with the risk that open-source software and new entrants could commoditise its offerings.",
+    "ticker": "MSFT"
+  },
+  {
+    "question": "How much did Microsoft spend on research and development in fiscal year 2024?",
+    "ground_truth": "Microsoft's research and development expenses for fiscal year 2024 were approximately $29 billion.",
+    "ticker": "MSFT"
+  },
+  {
+    "question": "How does Microsoft describe its approach to returning capital to shareholders?",
+    "ground_truth": "Microsoft returns capital to shareholders through quarterly cash dividends and share repurchase programmes, with the board authorising multi-year buyback programmes and a history of consistent dividend growth.",
+    "ticker": "MSFT"
+  },
+  {
+    "question": "What are Microsoft's three main business segments as described in its 10-K?",
+    "ground_truth": "Microsoft's three reportable segments are Productivity and Business Processes (Office, LinkedIn, Dynamics), Intelligent Cloud (Azure, server products), and More Personal Computing (Windows, Xbox, Surface, Bing).",
+    "ticker": "MSFT"
+  },
+  {
+    "question": "What was Alphabet's total revenue for fiscal year 2024?",
+    "ground_truth": "Alphabet's total revenue for fiscal year 2024 was approximately $350 billion, driven primarily by Google advertising and Google Cloud.",
+    "ticker": "GOOGL"
+  },
+  {
+    "question": "What was Google Cloud's revenue for fiscal year 2024?",
+    "ground_truth": "Google Cloud generated approximately $43 billion in revenue for fiscal year 2024, reflecting continued strong growth in cloud infrastructure and platform services.",
+    "ticker": "GOOGL"
+  },
+  {
+    "question": "What regulatory and legal risks does Alphabet disclose in its annual filing?",
+    "ground_truth": "Alphabet discloses risks including antitrust investigations and litigation in the United States and European Union related to Google Search and the Play Store, GDPR and privacy regulatory actions, and potential forced structural changes to its business.",
+    "ticker": "GOOGL"
+  },
+  {
+    "question": "What is Alphabet's primary source of revenue according to its 10-K?",
+    "ground_truth": "Alphabet's primary revenue source is advertising, with Google Search and Google Network Members' properties accounting for the majority of total revenue. YouTube advertising is also a significant and growing contributor.",
+    "ticker": "GOOGL"
+  },
+  {
+    "question": "How much did Alphabet spend on research and development in fiscal year 2024?",
+    "ground_truth": "Alphabet's research and development expenses for fiscal year 2024 were approximately $45 billion, reflecting heavy investment in AI, cloud infrastructure, and hardware.",
+    "ticker": "GOOGL"
+  },
+  {
+    "question": "How does Alphabet describe its artificial intelligence strategy in its annual report?",
+    "ground_truth": "Alphabet describes AI as foundational to all its products and services, highlighting investments in large language models such as Gemini, AI integration into Google Search and Cloud offerings, and the DeepMind research division as key pillars of its long-term AI strategy.",
+    "ticker": "GOOGL"
+  },
+  {
+    "question": "What was Amazon's total net sales for fiscal year 2024?",
+    "ground_truth": "Amazon's total net sales for fiscal year 2024 were approximately $638 billion, spanning the North America, International, and Amazon Web Services segments.",
+    "ticker": "AMZN"
+  },
+  {
+    "question": "What was Amazon Web Services net sales for fiscal year 2024?",
+    "ground_truth": "Amazon Web Services generated approximately $107 billion in net sales for fiscal year 2024, making it the largest cloud infrastructure provider globally.",
+    "ticker": "AMZN"
+  },
+  {
+    "question": "What competition-related risks does Amazon disclose in its 10-K?",
+    "ground_truth": "Amazon identifies competition from large established companies in each segment, including Walmart and Target in retail, Microsoft Azure and Google Cloud in cloud services, and Meta and Google in digital advertising, noting that many competitors have greater resources in specific verticals.",
+    "ticker": "AMZN"
+  },
+  {
+    "question": "How does Amazon describe its fulfilment and logistics network in its annual filing?",
+    "ground_truth": "Amazon describes a global network of fulfilment centres, sortation centres, delivery stations, and last-mile logistics capabilities, with continued investment in robotics and automation to reduce costs and delivery times.",
+    "ticker": "AMZN"
+  },
+  {
+    "question": "What risks does Amazon identify related to its international operations?",
+    "ground_truth": "Amazon identifies risks including foreign exchange fluctuations, local regulatory requirements, differences in consumer behaviour, trade restrictions, political and economic instability, and the challenge of adapting its retail and logistics model to local market conditions.",
+    "ticker": "AMZN"
+  },
+  {
+    "question": "What was Amazon's operating income for fiscal year 2024?",
+    "ground_truth": "Amazon's consolidated operating income for fiscal year 2024 was approximately $68 billion, with AWS contributing the largest share of operating profit relative to its revenue size.",
+    "ticker": "AMZN"
+  },
+  {
+    "question": "What was JPMorgan Chase's total net revenue for fiscal year 2024?",
+    "ground_truth": "JPMorgan Chase's total net revenue for fiscal year 2024 was approximately $177 billion, comprising net interest income and noninterest revenue across its four business segments.",
+    "ticker": "JPM"
+  },
+  {
+    "question": "What was JPMorgan Chase's net interest income for fiscal year 2024?",
+    "ground_truth": "JPMorgan Chase's net interest income for fiscal year 2024 was approximately $90 billion, benefiting from the higher interest rate environment.",
+    "ticker": "JPM"
+  },
+  {
+    "question": "What credit risk factors does JPMorgan Chase identify in its annual report?",
+    "ground_truth": "JPMorgan Chase's 10-K identifies credit risk factors including consumer and commercial loan default rates, concentration in real estate lending, exposure to leveraged finance and emerging markets, and sensitivity of credit quality to macroeconomic conditions such as unemployment and GDP growth.",
+    "ticker": "JPM"
+  },
+  {
+    "question": "How does JPMorgan Chase describe its capital management strategy in its 10-K?",
+    "ground_truth": "JPMorgan Chase describes maintaining capital levels above regulatory minimums under Basel III frameworks, returning excess capital through dividends and share buybacks subject to stress test results and Federal Reserve non-objection under CCAR, and targeting a standardised CET1 ratio consistent with its stated capital targets.",
+    "ticker": "JPM"
+  },
+  {
+    "question": "What was JPMorgan Chase's provision for credit losses in fiscal year 2024?",
+    "ground_truth": "JPMorgan Chase's provision for credit losses in fiscal year 2024 was approximately $10 billion, reflecting normalisation of credit from post-pandemic lows and reserve builds in consumer credit.",
+    "ticker": "JPM"
+  },
+  {
+    "question": "What are JPMorgan Chase's four main business segments as described in its 10-K?",
+    "ground_truth": "JPMorgan Chase's four reportable business segments are Consumer and Community Banking (CCB), Commercial Banking (CB), Corporate and Investment Bank (CIB), and Asset and Wealth Management (AWM).",
+    "ticker": "JPM"
+  }
+]
