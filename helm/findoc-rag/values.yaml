@@ -62,7 +62,7 @@ ollama:
       memory: 12Gi
 # ── Ingestion Service ─────────────────────────────────────
 ingestion:
-  image: ghcr.io/drag0sd0g/findoc-rag/ingestion:2b479bc
+  image: ghcr.io/drag0sd0g/findoc-rag/ingestion:d44e43d
   replicas: 1
   port: 8001
   edgarUserAgent: "FinDocRAG findocrag@example.com"
@@ -77,7 +77,7 @@ ingestion:
       memory: 1Gi
 # ── Embedding Worker ──────────────────────────────────────
 embeddingWorker:
-  image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:2b479bc
+  image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:d44e43d
   replicas: 2
   port: 8002
   embeddingModel: "sentence-transformers/all-MiniLM-L6-v2"
@@ -91,7 +91,7 @@ embeddingWorker:
       memory: 4Gi
 # ── Query API ─────────────────────────────────────────────
 queryApi:
-  image: ghcr.io/drag0sd0g/findoc-rag/query-api:2b479bc
+  image: ghcr.io/drag0sd0g/findoc-rag/query-api:d44e43d
   replicas: 2
   port: 8000
   llmBackend: ollama
@@ -152,8 +152,8 @@ ingress:
 # ── Drift Detection CronJob ──────────────────────────────
 driftDetection:
   enabled: true
-  schedule: "0 3 * * 0"    # Every Sunday at 3 AM
-  image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:2b479bc
+  schedule: "0 3 * * 0" # Every Sunday at 3 AM
+  image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:d44e43d
   resources:
     requests:
       cpu: 250m
