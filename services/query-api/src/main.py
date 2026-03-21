@@ -59,6 +59,8 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+RATE_LIMIT = os.getenv("RATE_LIMIT", "30/minute")
+QUERY_API_PORT = int(os.getenv("QUERY_API_PORT", "8000"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # ── Structured logging ───────────────────────────────────────────
@@ -201,7 +203,7 @@ async def ready() -> dict[str, str]:
 # ── POST /v1/query (FR-12 through FR-18) ────────────────────────
 
 @app.post("/v1/query", response_model=QueryResponse)
-@limiter.limit("30/minute")
+@limiter.limit(RATE_LIMIT)
 async def query(
     body: QueryRequest,
     request: Request,
@@ -244,7 +246,7 @@ async def query(
 # ── GET /v1/documents (FR-19, FR-20) ────────────────────────────
 
 @app.get("/v1/documents", response_model=DocumentListResponse)
-@limiter.limit("30/minute")
+@limiter.limit(RATE_LIMIT)
 async def list_documents(
     request: Request,
     ticker: str | None = Query(default=None, description="Filter by ticker symbol"),
@@ -318,4 +320,4 @@ async def list_documents(
 # ── Entrypoint ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("src.main:app", host="0.0.0.0", port=QUERY_API_PORT, reload=True)

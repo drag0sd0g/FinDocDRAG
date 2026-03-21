@@ -605,7 +605,8 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 │                   (retrieved sources without LLM answer)            │
 │                                                                     │
 │  OpenAI / Claude API ──X──▶ Query API                              │
-│                    └─▶ Retry with exponential backoff (2 attempts)  │
+│                    └─▶ Retry with exponential backoff               │
+│                        (max_retries=2 → 3 total attempts)           │
 │                    └─▶ If still failing, return HTTP 200 degraded   │
 └─────────────────────────────────────────────────────────────────────┘
 ```

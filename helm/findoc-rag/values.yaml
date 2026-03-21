@@ -82,7 +82,7 @@ ingestion:
 
 # ── Embedding Worker ──────────────────────────────────────
 embeddingWorker:
-  image: findoc-rag/embedding-worker:latest
+  image: ghcr.io/drag0sd0g/findoc-rag/embedding-worker:latest
   replicas: 2
   port: 8002
   embeddingModel: "sentence-transformers/all-MiniLM-L6-v2"
