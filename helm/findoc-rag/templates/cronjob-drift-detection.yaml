@@ -31,6 +31,13 @@ spec:
                 - python
                 - -m
                 - src.drift_detector
+              resources:
+                requests:
+                  cpu: {{ .Values.driftDetection.resources.requests.cpu }}
+                  memory: {{ .Values.driftDetection.resources.requests.memory }}
+                limits:
+                  cpu: {{ .Values.driftDetection.resources.limits.cpu }}
+                  memory: {{ .Values.driftDetection.resources.limits.memory }}
               envFrom:
                 - configMapRef:
                     name: {{ .Release.Name }}-app-config

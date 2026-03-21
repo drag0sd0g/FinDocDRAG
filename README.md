@@ -171,6 +171,121 @@ make lint     # Runs ruff (linter) and mypy (type checker)
 | `make helm-test`     | Run Helm unit tests (requires helm-unittest plugin)               |
 | `make helm-teardown` | Remove the Helm release                                           |
 
+## Kubernetes Deployment
+
+The `helm/findoc-rag/` chart deploys the full stack to any Kubernetes cluster. The five steps below cover a typical first-time deployment.
+
+### Prerequisites
+
+- `kubectl` configured against a running cluster (local: [kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/); cloud: GKE, EKS, AKS)
+- [Helm](https://helm.sh/docs/intro/install/) v3.10+
+- The `helm-unittest` plugin (only required for `make helm-test`):
+  ```bash
+  helm plugin install https://github.com/helm-unittest/helm-unittest
+  ```
+
+### Step 1 — Create the namespace
+
+```bash
+kubectl create namespace findoc-rag
+```
+
+### Step 2 — Create a production values override
+
+Copy the defaults and change the values that must differ in production:
+
+```bash
+cp helm/findoc-rag/values.yaml helm/findoc-rag/values.prod.yaml
+```
+
+Key overrides for a production deployment:
+
+```yaml
+# helm/findoc-rag/values.prod.yaml
+
+postgresql:
+  credentials:
+    password: "<strong-password>"   # never commit this; use --set or a sealed-secret
+
+grafana:
+  adminPassword: "<strong-password>"
+
+ingress:
+  enabled: true
+  host: findoc-rag.example.com     # your domain
+  tls:
+    enabled: true
+    secretName: findoc-rag-tls     # pre-created TLS secret
+
+queryApi:
+  apiKeys: "<key1>,<key2>"
+  llmBackend: claude               # or: openai
+```
+
+### Step 3 — Push sensitive values as Kubernetes Secrets
+
+```bash
+# PostgreSQL credentials
+kubectl create secret generic findoc-prod-postgresql \
+  --namespace findoc-rag \
+  --from-literal=POSTGRES_DB=findocrag \
+  --from-literal=POSTGRES_USER=findocrag \
+  --from-literal=POSTGRES_PASSWORD="<strong-password>"
+
+# LLM API keys (only the key you need)
+kubectl create secret generic findoc-prod-api-keys \
+  --namespace findoc-rag \
+  --from-literal=ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+### Step 4 — Install with Helm
+
+```bash
+helm upgrade --install findoc-rag helm/findoc-rag \
+  --namespace findoc-rag \
+  --values helm/findoc-rag/values.prod.yaml \
+  --set postgresql.credentials.password="<strong-password>" \
+  --wait
+```
+
+To deploy **without Ollama** (remote LLM only, saves ~12 GB RAM):
+
+```bash
+helm upgrade --install findoc-rag helm/findoc-rag \
+  --namespace findoc-rag \
+  --values helm/findoc-rag/values.prod.yaml \
+  --set queryApi.llmBackend=claude \
+  --set ollama.replicas=0 \
+  --wait
+```
+
+### Step 5 — Verify
+
+```bash
+# Check all pods reach Running / Completed state
+kubectl get pods -n findoc-rag
+
+# Tail logs for any service
+kubectl logs -n findoc-rag -l app.kubernetes.io/component=query-api -f
+
+# Port-forward the Query API for a quick smoke test
+kubectl port-forward -n findoc-rag svc/findoc-rag-query-api 8000:8000
+curl http://localhost:8000/health
+
+# Port-forward Grafana dashboards
+kubectl port-forward -n findoc-rag svc/findoc-rag-grafana 3000:3000
+# open http://localhost:3000  (admin / <adminPassword>)
+```
+
+### Teardown
+
+```bash
+make helm-teardown
+# or: helm uninstall findoc-rag --namespace findoc-rag
+```
+
+---
+
 ## Configuration
 
 All configuration is driven by environment variables. See `.env.example` for the full list with descriptions. Key variables:
