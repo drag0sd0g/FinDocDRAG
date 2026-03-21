@@ -142,7 +142,7 @@ None of these approaches let a user ask a natural language question — such as 
 | ID    | Requirement                                                                                                                                                                                                               |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | FR-12 | The Query API SHALL expose a `POST /v1/query` endpoint that accepts a JSON body with fields: `question` (string, required), `ticker_filter` (string, optional), `top_k` (integer, optional, default 5, max 20).           |
-| FR-13 | The Query API SHALL embed the user's question using the same embedding model (`all-MiniLM-L6-v2`) and retrieve the `top_k` most similar chunks from pgvector using cosine distance, optionally filtered by ticker symbol. |
+| FR-13 | The Query API SHALL embed the user's question using the same embedding model (`all-MiniLM-L6-v2`), fetch `min(top_k × 4, 100)` candidate chunks from pgvector via cosine distance (optionally filtered by ticker symbol), and apply Maximal Marginal Relevance (MMR, λ=0.5) reranking to select the final `top_k` chunks that best balance relevance and diversity. |
 | FR-14 | The Query API SHALL construct a prompt that includes the retrieved chunks as context, the user's question, and an instruction to answer only from the provided context and cite sources.                                  |
 | FR-15 | The prompt template SHALL follow this structure:                                                                                                                                                                          |
 
@@ -165,7 +165,7 @@ Answer:
 | ID    | Requirement                                                                                                                                                                                                                                                                                                           |
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | FR-16 | The Query API SHALL send the constructed prompt to the configured LLM backend (Ollama local or OpenAI API) and return the generated answer.                                                                                                                                                                           |
-| FR-17 | The API response SHALL include: `answer` (string), `sources` (array of objects with `chunk_id`, `ticker`, `filing_date`, `section`, `relevance_score`, and `text_preview` — first 200 characters of the chunk), `model` (string — which LLM was used), and `timing` (object with `retrieval_ms` and `generation_ms`). |
+| FR-17 | The API response SHALL include: `answer` (string or null), `sources` (array of objects with `chunk_id`, `ticker`, `filing_date`, `section`, `relevance_score`, and `text_preview` — first 200 characters of the chunk), `model` (string — which LLM was used), `timing` (object with `embedding_ms`, `retrieval_ms`, `generation_ms`, and `total_ms`), `degraded` (boolean — true when LLM is unavailable), and `request_id` (UUID). |
 | FR-18 | The Query API SHALL support three LLM backends, selectable via environment variable (`LLM_BACKEND`): `ollama` (default, using `mistral:7b` model), `openai` (using `gpt-4o-mini` model), and `claude` (using `claude-opus-4-6` model, overridable via `CLAUDE_MODEL`).                                                |
 
 ### 3.4 Document Listing
@@ -402,7 +402,9 @@ Response:
     "retrieval_ms": 45,
     "generation_ms": 3200,
     "total_ms": 3257
-  }
+  },
+  "degraded": false,
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -523,7 +525,7 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 | `filings.embedded` | accession_number | Chunk ID array   | 6          | 7 days    |
 | `filings.dlq`      | accession_number | Error + original | 3          | 30 days   |
 
-> **Topic creation:** `filings.raw` is auto-created by Kafka on first publish (`KAFKA_AUTO_CREATE_TOPICS_ENABLE=true`, inheriting the cluster default of 6 partitions and 7-day retention). `filings.embedded` and `filings.dlq` are created explicitly by the Docker Compose init script (`kafka-init` service) to ensure correct partition count and retention before any consumer starts.
+> **Topic creation:** `filings.raw` is auto-created by Kafka on first publish (`KAFKA_AUTO_CREATE_TOPICS_ENABLE=true`, inheriting the cluster default of 6 partitions and 7-day retention). `filings.embedded` and `filings.dlq` are created explicitly by the Docker Compose init script (`kafka-setup` service) to ensure correct partition count and retention before any consumer starts.
 
 ### 5.4 Technology Choices and Rationale
 
@@ -698,6 +700,7 @@ All services expose Prometheus metrics on `/metrics` (port 9090).
 | `findoc_ingestion_filings_fetched_total`  | Counter   | `ticker`, `status` | Total filings fetched (success/error/skipped) |
 | `findoc_ingestion_edgar_request_duration` | Histogram | `ticker`           | SEC EDGAR API request latency                 |
 | `findoc_ingestion_kafka_publish_total`    | Counter   | `topic`, `status`  | Messages published to Kafka (success/error)   |
+| `findoc_ingestion_filing_size_bytes`      | Histogram | `ticker`           | Raw filing text size in bytes                 |
 
 #### 8.1.2 Embedding Worker Metrics
 
@@ -708,6 +711,7 @@ All services expose Prometheus metrics on `/metrics` (port 9090).
 | `findoc_embedding_chunk_tokens`           | Histogram | —                  | Token count distribution per chunk         |
 | `findoc_embedding_dlq_messages_total`     | Counter   | —                  | Messages sent to dead letter queue         |
 | `findoc_embedding_kafka_lag`              | Gauge     | `partition`        | Consumer lag per partition                 |
+| `findoc_embedding_chunks_per_filing`      | Histogram | `ticker`           | Number of chunks produced per filing       |
 
 #### 8.1.3 Query API Metrics
 
@@ -753,13 +757,9 @@ All services use Python's `structlog` library with JSON output:
   "level": "info",
   "service": "query-api",
   "event": "query_completed",
-  "question_length": 82,
-  "top_k": 5,
-  "retrieval_ms": 45,
-  "generation_ms": 3200,
+  "sources": 5,
+  "degraded": false,
   "total_ms": 3257,
-  "model": "mistral:7b",
-  "top_relevance_score": 0.87,
   "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 }
 ```
@@ -807,7 +807,7 @@ A scheduled job (Kubernetes CronJob, weekly) computes the mean embedding vector 
 ### 9.4 Dependency Management
 
 - All Python dependencies are pinned with exact versions in `requirements.txt` (generated from `pip-compile`).
-- Docker images use specific version tags, not `latest`.
+- Service Docker images (`ingestion`, `embedding-worker`, `query-api`) use `python:3.12-slim` as the base image. Third-party infrastructure images (Prometheus, Grafana, Ollama) use `latest` tags; pinning these to specific digests is a recommended hardening step for production.
 - GitHub Actions workflow includes a `pip-audit` step to check for known vulnerabilities in dependencies.
 
 ---
@@ -835,7 +835,9 @@ findoc-rag/
 │   │   │   ├── main.py
 │   │   │   ├── edgar_client.py
 │   │   │   ├── kafka_producer.py
-│   │   │   └── config.py
+│   │   │   ├── config.py
+│   │   │   ├── db.py
+│   │   │   └── metrics.py
 │   │   └── tests/
 │   │       └── test_edgar_client.py
 │   ├── embedding-worker/
@@ -845,15 +847,21 @@ findoc-rag/
 │   │   │   ├── main.py
 │   │   │   ├── chunker.py
 │   │   │   ├── embedder.py
-│   │   │   └── store.py
+│   │   │   ├── store.py
+│   │   │   ├── metrics.py
+│   │   │   └── drift_detector.py
 │   │   └── tests/
+│   │       ├── test_main.py
 │   │       ├── test_chunker.py
-│   │       └── test_embedder.py
+│   │       ├── test_embedder.py
+│   │       ├── test_store.py
+│   │       └── test_drift_detector.py
 │   ├── query-api/
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
 │   │   ├── src/
 │   │   │   ├── main.py
+│   │   │   ├── metrics.py
 │   │   │   ├── rag/
 │   │   │   │   ├── retriever.py
 │   │   │   │   ├── generator.py
@@ -861,12 +869,16 @@ findoc-rag/
 │   │   │   ├── llm/
 │   │   │   │   ├── backend.py
 │   │   │   │   ├── ollama_backend.py
-│   │   │   │   └── openai_backend.py
+│   │   │   │   ├── openai_backend.py
+│   │   │   │   └── anthropic_backend.py
 │   │   │   ├── auth.py
 │   │   │   └── models.py
 │   │   └── tests/
+│   │       ├── test_main.py
+│   │       ├── test_main_app.py
 │   │       ├── test_retriever.py
-│   │       └── test_generator.py
+│   │       ├── test_generator.py
+│   │       └── test_llm_backends.py
 │   └── eval/
 │       ├── requirements.txt
 │       ├── eval_dataset.json
@@ -875,6 +887,8 @@ findoc-rag/
 │   └── findoc-rag/
 │       ├── Chart.yaml
 │       ├── values.yaml
+│       ├── dashboards/
+│       │   └── findoc-overview.json
 │       └── templates/
 │           ├── ingestion-deployment.yaml
 │           ├── embedding-worker-deployment.yaml
@@ -884,6 +898,8 @@ findoc-rag/
 │           ├── kafka-statefulset.yaml
 │           ├── prometheus-deployment.yaml
 │           ├── grafana-deployment.yaml
+│           ├── grafana-provisioning-configmap.yaml
+│           ├── grafana-dashboards-configmap.yaml
 │           ├── configmaps.yaml
 │           ├── secrets.yaml
 │           ├── services.yaml

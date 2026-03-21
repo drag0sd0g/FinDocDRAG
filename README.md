@@ -8,7 +8,7 @@ The system is composed of three independently deployable services connected by A
 
 - **Ingestion Service** -- Fetches 10-K filings from the SEC EDGAR full-text search API and publishes raw filing text to Kafka.
 - **Embedding Worker** -- Consumes raw filings from Kafka, splits them into section-aware chunks, generates dense vector embeddings, and stores the results in pgvector. Chunking is hierarchical: 10-K items are split by section (Item 1A, Item 7, etc.), then by paragraph, then into 512-token windows with 64-token overlap. Each chunk retains the section name, ticker, filing date, and a deterministic SHA256 chunk ID.
-- **Query API** -- Accepts natural language questions, retrieves the most relevant document chunks via cosine similarity, constructs a grounded prompt, and returns an LLM-generated answer with source citations.
+- **Query API** -- Accepts natural language questions, embeds the query and retrieves candidate chunks via cosine distance, applies Maximal Marginal Relevance (MMR) reranking to balance relevance and diversity, constructs a grounded prompt, and returns an LLM-generated answer with source citations.
 
 ```
 SEC EDGAR  -->  Ingestion  -->  Kafka  -->  Embedding Worker  -->  PostgreSQL + pgvector
@@ -94,6 +94,8 @@ curl -X POST http://localhost:8000/v1/query \
     "top_k": 5
   }'
 ```
+
+`top_k` is optional (default `5`, range `1`–`20`). Include an `X-Request-ID` header to correlate requests across log entries; if omitted, one is generated automatically and returned as `request_id` in the response.
 
 The response shape:
 
@@ -345,17 +347,29 @@ All configuration is driven by environment variables. See `.env.example` for the
 
 **Security & API**
 
-| Variable   | Default               | Description                                                       |
-| ---------- | --------------------- | ----------------------------------------------------------------- |
-| `API_KEYS` | `dev-key-1,dev-key-2` | Comma-separated valid API keys for the Query API                  |
-| `RATE_LIMIT` | `30/minute`         | Query API rate limit per API key (slowapi format, e.g. `60/minute`) |
+| Variable        | Default               | Description                                                             |
+| --------------- | --------------------- | ----------------------------------------------------------------------- |
+| `API_KEYS`      | `dev-key-1,dev-key-2` | Comma-separated valid API keys for the Query API                        |
+| `RATE_LIMIT`    | `30/minute`           | Query API rate limit per API key (slowapi format, e.g. `60/minute`)     |
+| `CORS_ORIGINS`  | `*`                   | Comma-separated allowed CORS origins (e.g. `https://myapp.example.com`) |
 
 **Ingestion**
 
-| Variable            | Default                           | Description                                      |
-| ------------------- | --------------------------------- | ------------------------------------------------ |
-| `EDGAR_USER_AGENT`  | `FinDocRAG findocrag@example.com` | SEC-required identification string               |
-| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092`              | Kafka broker address used by the embedding worker |
+| Variable                   | Default                           | Description                                              |
+| -------------------------- | --------------------------------- | -------------------------------------------------------- |
+| `EDGAR_USER_AGENT`         | `FinDocRAG findocrag@example.com` | SEC-required identification string                       |
+| `EDGAR_RATE_LIMIT_RPS`     | `10`                              | Max EDGAR API requests per second (SEC limit is 10 r/s)  |
+| `KAFKA_BOOTSTRAP_SERVERS`  | `kafka:9092`                      | Kafka broker address used by the embedding worker        |
+
+**Database**
+
+| Variable            | Default      | Description                              |
+| ------------------- | ------------ | ---------------------------------------- |
+| `POSTGRES_HOST`     | `postgres`   | PostgreSQL hostname                      |
+| `POSTGRES_PORT`     | `5432`       | PostgreSQL port                          |
+| `POSTGRES_DB`       | `findocrag`  | Database name                            |
+| `POSTGRES_USER`     | `findocrag`  | Database user                            |
+| `POSTGRES_PASSWORD` | `changeme`   | Database password (override in production) |
 
 **Observability**
 

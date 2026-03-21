@@ -18,6 +18,7 @@ These records complement Section 5.4 of the [Technical Design Document](technica
 8. [ADR-008: Observability Stack](#adr-008-observability-stack)
 9. [ADR-009: Evaluation Framework](#adr-009-evaluation-framework)
 10. [ADR-010: Kafka Topology and Consumer Design](#adr-010-kafka-topology-and-consumer-design)
+11. [ADR-011: Retrieval Reranking Strategy (MMR)](#adr-011-retrieval-reranking-strategy-mmr)
 
 ---
 
@@ -182,7 +183,7 @@ KRaft mode (Kafka without ZooKeeper) reduces the operational footprint from two 
 - Positive: Consumer group semantics provide a clear horizontal scaling path.
 - Positive: DLQ topic provides a structured error recovery mechanism.
 - Negative: Kafka consumes approximately 400 MB of memory, which is significant in a constrained local environment.
-- Negative: Large filing texts (10-K filings can exceed 10 MB) require increasing `message.max.bytes` beyond Kafka's 1 MB default.
+- Negative: Large filing texts (10-K filings can exceed 150 MB of raw text; the largest observed filing was ~157 MB) require increasing `message.max.bytes` significantly beyond Kafka's 1 MB default.
 - Negative: Single-broker deployment has no replication; not suitable for production durability guarantees.
 
 ---
@@ -432,3 +433,51 @@ Auto-commit was rejected because it creates a window where a message is marked a
 - Positive: Consumer group rebalancing works correctly because offsets are committed at well-defined points.
 - Negative: DLQ messages require manual inspection and replay (no automated retry from DLQ).
 - Negative: 3 in-process retries add latency for persistently failing messages (up to ~14 seconds with exponential backoff before DLQ routing).
+
+---
+
+## ADR-011: Retrieval Reranking Strategy (MMR)
+
+**Status:** Accepted
+
+### Context
+
+The vector similarity search in pgvector returns the top-k chunks ranked by cosine distance. When a filing section is split into many closely overlapping chunks (e.g., a long Risk Factors section), the top-k results can be dominated by near-duplicate chunks from the same passage. The LLM then receives repetitive context, wasting its context window and producing answers that over-cite a single passage while ignoring equally relevant content elsewhere.
+
+### Options Considered
+
+| Option                            | Description                                                     | Pros                                                                                                     | Cons                                                                                                     |
+| --------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **No reranking (pure similarity)**| Return top-k by cosine distance directly                        | Simplest implementation, lowest latency                                                                  | Near-duplicate chunks dominate when sections are densely tokenised; LLM sees repetitive context          |
+| **Cosine-distance deduplication** | Remove chunks whose cosine similarity to any already-selected chunk exceeds a threshold | Simple to implement, easy to reason about | Threshold is a magic number; binary accept/reject loses relevance signal; threshold requires manual tuning |
+| **Maximal Marginal Relevance (MMR)** | Iteratively select chunks maximising λ × relevance − (1−λ) × max_similarity_to_selected | Principled trade-off, industry standard (LangChain, LlamaIndex), single λ parameter, no hard threshold | Slightly more code; requires chunk embeddings to be returned from the DB query                           |
+
+### Decision
+
+**Maximal Marginal Relevance (MMR) with λ=0.5 (equal weight on relevance and diversity).**
+
+Fetch `min(top_k × 4, 100)` candidates from pgvector, then apply MMR to select the final `top_k`.
+
+### Rationale
+
+MMR (Carbonell & Goldstein, 1998, SIGIR) is the de facto standard for diversity-aware retrieval reranking. The iterative selection formula:
+
+```
+score = λ × relevance_score − (1 − λ) × max_cosine_sim(chunk, already_selected)
+```
+
+subsumes cosine deduplication as a special case (λ→0) while also encoding the original relevance signal. With λ=0.5 the algorithm naturally trades off — a chunk with slightly lower relevance but high novelty beats a near-duplicate with higher relevance. This is exactly the right behaviour when the top-20 candidates from pgvector all come from the same filing section.
+
+The 4× candidate multiplier gives MMR enough diversity headroom without meaningful latency cost, since pgvector's HNSW lookup is O(log n) regardless of LIMIT.
+
+Cosine-distance deduplication was rejected because its threshold is a brittle magic number: too low and duplicates slip through; too high and legitimate near-paraphrases are discarded. MMR avoids the need for a hard threshold entirely.
+
+Returning chunk embeddings from the DB query is necessary for MMR but was already the correct design — pgvector's `register_vector` makes this zero-copy via numpy arrays.
+
+### Consequences
+
+- Positive: LLM receives diverse, non-redundant context — particularly valuable for long filings with many overlapping chunks.
+- Positive: Single λ parameter with a sensible default (0.5); callers can override to λ=1.0 to recover pure relevance order.
+- Positive: Algorithm is well-understood and directly testable (unit tests verify diversity preference and λ=1.0 fallback behaviour).
+- Negative: Requires fetching `4 × top_k` candidates from pgvector instead of `top_k`; HNSW lookup cost is the same but row transfer is larger.
+- Negative: Adds a dependency on `numpy` for the dot-product computation (already a transitive dependency via `sentence-transformers`, so no new package).
