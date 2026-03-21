@@ -185,6 +185,7 @@ make setup    # Creates venvs and installs dependencies for all services
 
 ```bash
 make test     # Runs pytest with coverage for all three services
+make helm-test # Runs the helm unit-tests
 ```
 
 Tests mock all external dependencies (Kafka, PostgreSQL, EDGAR, Ollama) and run without any infrastructure.
