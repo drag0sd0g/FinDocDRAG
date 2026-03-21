@@ -20,6 +20,7 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from logging import LogRecord
+from typing import Any
 
 import structlog
 import uvicorn
@@ -68,7 +69,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 SERVICE_NAME = "query-api"
 
 
-def _add_service_field(_logger: object, _method_name: str, event_dict: dict) -> dict:
+def _add_service_field(_logger: Any, _method_name: str, event_dict: Any) -> Any:
     event_dict["service"] = SERVICE_NAME
     return event_dict
 

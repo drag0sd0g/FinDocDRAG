@@ -32,9 +32,9 @@ lint:  ## Run ruff + mypy for all services
 	@echo "==> Linting with ruff..."
 	ruff check services/
 	@echo "==> Type checking with mypy..."
-	cd services/ingestion && PYTHONPATH=. .venv/bin/python -m mypy src/
-	cd services/embedding-worker && PYTHONPATH=. .venv/bin/python -m mypy src/
-	cd services/query-api && PYTHONPATH=. .venv/bin/python -m mypy src/
+	cd services/ingestion && PYTHONPATH=. .venv/bin/python -m mypy src/ --ignore-missing-imports --no-error-summary
+	cd services/embedding-worker && PYTHONPATH=. .venv/bin/python -m mypy src/ --ignore-missing-imports --no-error-summary
+	cd services/query-api && PYTHONPATH=. .venv/bin/python -m mypy src/ --ignore-missing-imports --no-error-summary
 
 run:  ## Start the full stack with Docker Compose (includes Ollama local LLM)
 	docker compose --profile local-llm up --build

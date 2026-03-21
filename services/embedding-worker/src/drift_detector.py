@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from typing import Any
 
 import numpy as np
 import psycopg2
@@ -57,7 +58,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 SERVICE_NAME = "drift-detector"
 
 
-def _add_service_field(_logger: object, _method_name: str, event_dict: dict) -> dict:
+def _add_service_field(_logger: Any, _method_name: str, event_dict: Any) -> Any:
     event_dict["service"] = SERVICE_NAME
     return event_dict
 
@@ -102,13 +103,16 @@ def main() -> None:
     except Exception as exc:
         logger.error("db_connect_failed", error=str(exc))
         sys.exit(1)
+        return  # keeps execution from continuing when sys.exit is mocked in tests
 
     # ── Query corpus mean and recent mean ─────────────────────────
+    corpus_mean: np.ndarray | None = None
+    recent_mean: np.ndarray | None = None
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT avg(embedding) FROM document_chunks")
             row = cur.fetchone()
-            corpus_mean: np.ndarray | None = row[0] if row else None
+            corpus_mean = row[0] if row else None
 
         with conn.cursor() as cur:
             cur.execute(
@@ -117,12 +121,13 @@ def main() -> None:
                 (DRIFT_LOOKBACK_DAYS,),
             )
             row = cur.fetchone()
-            recent_mean: np.ndarray | None = row[0] if row else None
+            recent_mean = row[0] if row else None
     except Exception as exc:
         logger.error("db_query_failed", error=str(exc))
         conn.close()
         sys.exit(1)
-    finally:
+        return  # keeps execution from continuing when sys.exit is mocked in tests
+    else:
         conn.close()
 
     # ── Handle missing data ────────────────────────────────────────

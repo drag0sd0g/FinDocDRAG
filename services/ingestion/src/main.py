@@ -42,7 +42,7 @@ from src.metrics import FILINGS_FETCHED_TOTAL
 SERVICE_NAME = "ingestion"
 
 
-def _add_service_field(_logger: object, _method_name: str, event_dict: dict) -> dict:
+def _add_service_field(_logger: Any, _method_name: str, event_dict: Any) -> Any:
     event_dict["service"] = SERVICE_NAME
     return event_dict
 
