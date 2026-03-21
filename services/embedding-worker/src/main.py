@@ -112,70 +112,139 @@ def _consume_loop() -> None:
             logger.error("consumer_error", error=str(msg.error()))
             continue
 
+        # ── Step 1: Parse message ─────────────────────────────────────
+        # Malformed messages cannot be retried — route straight to DLQ.
         try:
             payload: dict[str, Any] = json.loads(msg.value().decode("utf-8"))
             accession = payload["accession_number"]
             ticker = payload["ticker"]
             filing_date = payload["filing_date"]
             raw_text = payload["raw_text"]
-
-            logger.info(
-                "processing_filing",
-                accession=accession,
-                ticker=ticker,
-            )
-
-            # Chunk
-            chunks = chunk_filing(
-                raw_text=raw_text,
-                accession_number=accession,
-                ticker=ticker,
-                filing_date=filing_date,
-            )
-
-            if not chunks:
-                logger.warning("no_chunks_produced", accession=accession)
-                consumer.commit(msg)
-                continue
-
-            # Record token distribution (TDD Section 8.1.2)
-            for c in chunks:
-                CHUNK_TOKENS.observe(c.token_count)
-
-            # Embed (with batch duration timing)
-            assert _embedder is not None
-            texts = [c.text for c in chunks]
-            t0 = time.perf_counter()
-            embeddings = _embedder.embed(texts)
-            embed_elapsed = time.perf_counter() - t0
-            BATCH_DURATION.observe(embed_elapsed)
-
-            # Store
-            assert _store is not None
-            _store.store_chunks(chunks, embeddings)
-            _store.update_ingestion_status(accession, len(chunks))
-
-            # Record successful chunk processing
-            CHUNKS_PROCESSED_TOTAL.labels(ticker=ticker, status="success").inc(len(chunks))
-
-            # Publish confirmation to filings.embedded (FR-11)
-            confirmation = {
-                "accession_number": accession,
-                "chunk_ids": [c.chunk_id for c in chunks],
-                "chunk_count": len(chunks),
-                "processed_at": datetime.now(UTC).isoformat(),
-            }
-            producer.produce(
-                topic=TOPIC_EMBEDDED,
-                key=accession,
-                value=json.dumps(confirmation),
-            )
-            producer.poll(0)
-
-            # Manual offset commit (TDD Section 7.2)
+        except Exception as parse_exc:
+            logger.error("message_parse_failed", error=str(parse_exc))
+            try:
+                dlq_msg = {
+                    "original_message": {},
+                    "error": str(parse_exc),
+                    "failed_at": datetime.now(UTC).isoformat(),
+                    "retry_count": 0,
+                }
+                producer.produce(
+                    topic=TOPIC_DLQ,
+                    key=msg.key(),
+                    value=json.dumps(dlq_msg),
+                )
+                producer.poll(0)
+                DLQ_MESSAGES_TOTAL.inc()
+            except Exception as dlq_exc:
+                logger.error("dlq_publish_failed", error=str(dlq_exc))
             consumer.commit(msg)
+            continue
 
-            # Update Kafka lag gauge
+        logger.info("processing_filing", accession=accession, ticker=ticker)
+
+        # ── Step 2: Process with retries (ADR-010) ────────────────────
+        # Attempt the full pipeline up to MAX_RETRIES + 1 times, sleeping
+        # 2^(attempt+1) seconds between failures: 2 s, 4 s, 8 s → ~14 s max.
+        last_exc: Exception | None = None
+        chunks: list[Any] = []
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                chunks = chunk_filing(
+                    raw_text=raw_text,
+                    accession_number=accession,
+                    ticker=ticker,
+                    filing_date=filing_date,
+                )
+
+                if not chunks:
+                    logger.warning("no_chunks_produced", accession=accession)
+                    break
+
+                # Record token distribution (TDD Section 8.1.2)
+                for c in chunks:
+                    CHUNK_TOKENS.observe(c.token_count)
+
+                # Embed (with batch duration timing)
+                assert _embedder is not None
+                texts = [c.text for c in chunks]
+                t0 = time.perf_counter()
+                embeddings = _embedder.embed(texts)
+                embed_elapsed = time.perf_counter() - t0
+                BATCH_DURATION.observe(embed_elapsed)
+
+                # Store
+                assert _store is not None
+                _store.store_chunks(chunks, embeddings)
+                _store.update_ingestion_status(accession, len(chunks))
+
+                CHUNKS_PROCESSED_TOTAL.labels(ticker=ticker, status="success").inc(len(chunks))
+
+                # Publish confirmation to filings.embedded (FR-11)
+                confirmation = {
+                    "accession_number": accession,
+                    "chunk_ids": [c.chunk_id for c in chunks],
+                    "chunk_count": len(chunks),
+                    "processed_at": datetime.now(UTC).isoformat(),
+                }
+                producer.produce(
+                    topic=TOPIC_EMBEDDED,
+                    key=accession,
+                    value=json.dumps(confirmation),
+                )
+                producer.poll(0)
+
+                last_exc = None
+                break  # success
+
+            except Exception as exc:
+                last_exc = exc
+                if attempt < MAX_RETRIES:
+                    sleep_s = 2 ** (attempt + 1)  # 2 s, 4 s, 8 s
+                    logger.warning(
+                        "processing_attempt_failed",
+                        attempt=attempt + 1,
+                        max_retries=MAX_RETRIES,
+                        sleep_s=sleep_s,
+                        accession=accession,
+                        error=str(exc),
+                    )
+                    time.sleep(sleep_s)
+                else:
+                    logger.error(
+                        "processing_failed_all_retries",
+                        accession=accession,
+                        ticker=ticker,
+                        error=str(exc),
+                    )
+
+        # ── Step 3: DLQ if all retries exhausted (ADR-010, TDD 7.3) ──
+        if last_exc is not None:
+            CHUNKS_PROCESSED_TOTAL.labels(ticker=ticker, status="error").inc()
+            try:
+                dlq_msg = {
+                    "original_message": payload,
+                    "error": str(last_exc),
+                    "failed_at": datetime.now(UTC).isoformat(),
+                    "retry_count": MAX_RETRIES,
+                }
+                producer.produce(
+                    topic=TOPIC_DLQ,
+                    key=msg.key(),
+                    value=json.dumps(dlq_msg),
+                )
+                producer.poll(0)
+                DLQ_MESSAGES_TOTAL.inc()
+            except Exception as dlq_exc:
+                logger.error("dlq_publish_failed", error=str(dlq_exc))
+
+        # ── Step 4: Commit offset (always — success or DLQ) ──────────
+        # TDD Section 7.2: only commit after the message is fully handled.
+        consumer.commit(msg)
+
+        if last_exc is None and chunks:
+            # Update Kafka lag gauge (best-effort, success path only)
             try:
                 partitions = consumer.assignment()
                 for tp in partitions:
@@ -192,38 +261,6 @@ def _consume_loop() -> None:
                 ticker=ticker,
                 chunks=len(chunks),
             )
-
-        except Exception as exc:
-            logger.error(
-                "processing_failed",
-                error=str(exc),
-                accession=payload.get("accession_number", "unknown") if 'payload' in dir() else "unknown",
-            )
-
-            # Record failed chunk processing
-            _ticker = payload.get("ticker", "unknown") if 'payload' in dir() else "unknown"
-            CHUNKS_PROCESSED_TOTAL.labels(ticker=_ticker, status="error").inc()
-
-            # Publish to DLQ (TDD Section 7.3)
-            try:
-                dlq_msg = {
-                    "original_message": payload if 'payload' in dir() else {},
-                    "error": str(exc),
-                    "failed_at": datetime.now(UTC).isoformat(),
-                    "retry_count": MAX_RETRIES,
-                }
-                producer.produce(
-                    topic=TOPIC_DLQ,
-                    key=msg.key(),
-                    value=json.dumps(dlq_msg),
-                )
-                producer.poll(0)
-                DLQ_MESSAGES_TOTAL.inc()
-            except Exception as dlq_exc:
-                logger.error("dlq_publish_failed", error=str(dlq_exc))
-
-            # Commit offset so we don't reprocess forever
-            consumer.commit(msg)
 
     consumer.close()
     producer.flush()

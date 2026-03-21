@@ -305,6 +305,173 @@ class TestConsumeLoop:
 
         mock_consumer.commit.assert_called()
 
+    @patch("src.main.time")
+    @patch("src.main.chunk_filing")
+    @patch("src.main.Producer")
+    @patch("src.main.Consumer")
+    def test_retries_before_dlq_on_processing_error(
+        self,
+        mock_consumer_class: MagicMock,
+        mock_producer_class: MagicMock,
+        mock_chunk_filing: MagicMock,
+        mock_time: MagicMock,
+    ) -> None:
+        """chunk_filing failures trigger MAX_RETRIES retries with sleeps before DLQ."""
+        import src.main as main_mod
+
+        main_mod._embedder = MagicMock()
+        main_mod._store = MagicMock()
+
+        mock_chunk_filing.side_effect = RuntimeError("transient error")
+
+        payload = {
+            "accession_number": "0001-24-000001",
+            "ticker": "AAPL",
+            "filing_date": "2024-11-01",
+            "raw_text": "Item 1. Business\nWe are a company.",
+        }
+        mock_msg = MagicMock()
+        mock_msg.error.return_value = None
+        mock_msg.value.return_value = json.dumps(payload).encode("utf-8")
+        mock_msg.key.return_value = b"0001-24-000001"
+
+        mock_consumer = MagicMock()
+        mock_producer = MagicMock()
+        call_count = 0
+
+        def poll_side_effect(timeout: float = 1.0) -> MagicMock | None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_msg
+            main_mod._shutdown_event.set()
+            return None
+
+        mock_consumer.poll.side_effect = poll_side_effect
+        mock_consumer_class.return_value = mock_consumer
+        mock_producer_class.return_value = mock_producer
+        mock_time.perf_counter.return_value = 0.0
+
+        main_mod._shutdown_event.clear()
+
+        try:
+            main_mod._consume_loop()
+        finally:
+            main_mod._shutdown_event.clear()
+            main_mod._embedder = None
+            main_mod._store = None
+
+        # chunk_filing called MAX_RETRIES + 1 times (initial + 3 retries)
+        assert mock_chunk_filing.call_count == main_mod.MAX_RETRIES + 1
+
+        # sleep called MAX_RETRIES times between attempts
+        assert mock_time.sleep.call_count == main_mod.MAX_RETRIES
+
+        # sleep durations follow 2^(attempt+1): 2 s, 4 s, 8 s
+        sleep_args = [c.args[0] for c in mock_time.sleep.call_args_list]
+        assert sleep_args == [2, 4, 8]
+
+        # Message routed to DLQ
+        dlq_calls = [
+            c for c in mock_producer.produce.call_args_list
+            if c.kwargs.get("topic") == "filings.dlq"
+            or (c.args and "filings.dlq" in str(c.args[0]))
+        ]
+        assert len(dlq_calls) == 1
+
+        # Offset committed exactly once
+        mock_consumer.commit.assert_called_once_with(mock_msg)
+
+    @patch("src.main.time")
+    @patch("src.main.chunk_filing")
+    @patch("src.main.Producer")
+    @patch("src.main.Consumer")
+    def test_succeeds_on_retry(
+        self,
+        mock_consumer_class: MagicMock,
+        mock_producer_class: MagicMock,
+        mock_chunk_filing: MagicMock,
+        mock_time: MagicMock,
+    ) -> None:
+        """A transient error on the first attempt succeeds on the second attempt."""
+        import src.main as main_mod
+        from src.chunker import Chunk
+
+        mock_embedder = MagicMock()
+        mock_embedder.embed.return_value = [[0.1] * 384]
+        mock_store = MagicMock()
+        main_mod._embedder = mock_embedder
+        main_mod._store = mock_store
+
+        chunk = Chunk(
+            chunk_id="abc123",
+            accession_number="0001-24-000001",
+            ticker="AAPL",
+            filing_date="2024-11-01",
+            section_name="Item 1",
+            chunk_index=0,
+            text="We are a company.",
+            token_count=5,
+        )
+        # Fail once, then succeed
+        mock_chunk_filing.side_effect = [RuntimeError("blip"), [chunk]]
+
+        payload = {
+            "accession_number": "0001-24-000001",
+            "ticker": "AAPL",
+            "filing_date": "2024-11-01",
+            "raw_text": "Item 1. Business\nWe are a company.",
+        }
+        mock_msg = MagicMock()
+        mock_msg.error.return_value = None
+        mock_msg.value.return_value = json.dumps(payload).encode("utf-8")
+        mock_msg.key.return_value = b"0001-24-000001"
+
+        mock_consumer = MagicMock()
+        mock_producer = MagicMock()
+        call_count = 0
+
+        def poll_side_effect(timeout: float = 1.0) -> MagicMock | None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_msg
+            main_mod._shutdown_event.set()
+            return None
+
+        mock_consumer.poll.side_effect = poll_side_effect
+        mock_consumer_class.return_value = mock_consumer
+        mock_producer_class.return_value = mock_producer
+        mock_time.perf_counter.return_value = 0.0
+
+        main_mod._shutdown_event.clear()
+
+        try:
+            main_mod._consume_loop()
+        finally:
+            main_mod._shutdown_event.clear()
+            main_mod._embedder = None
+            main_mod._store = None
+
+        # Two attempts: one failure, one success
+        assert mock_chunk_filing.call_count == 2
+
+        # One sleep between attempts
+        assert mock_time.sleep.call_count == 1
+        assert mock_time.sleep.call_args.args[0] == 2  # first backoff = 2 s
+
+        # No DLQ publish
+        dlq_calls = [
+            c for c in mock_producer.produce.call_args_list
+            if c.kwargs.get("topic") == "filings.dlq"
+            or (c.args and "filings.dlq" in str(c.args[0]))
+        ]
+        assert len(dlq_calls) == 0
+
+        # Store was called with the successful chunks
+        mock_store.store_chunks.assert_called_once()
+        mock_consumer.commit.assert_called_once_with(mock_msg)
+
     @patch("src.main.Producer")
     @patch("src.main.Consumer")
     def test_processing_error_sends_to_dlq(
