@@ -17,10 +17,12 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from logging import LogRecord
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Awaitable, Callable
 
 import aiohttp
 import structlog

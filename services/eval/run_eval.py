@@ -103,12 +103,14 @@ async def _call_query_api(
 async def _check_api_health(api_url: str) -> bool:
     """Return True if the Query API /health endpoint is reachable."""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
                 f"{api_url}/health",
                 timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                return resp.status == 200
+            ) as resp,
+        ):
+            return resp.status == 200
     except Exception:
         return False
 

@@ -18,11 +18,13 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from logging import LogRecord
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Awaitable, Callable
 
 import structlog
 import uvicorn
