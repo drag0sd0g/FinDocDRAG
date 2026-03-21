@@ -1,0 +1,11 @@
+meta {
+  name: Embedding Worker — Health
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{embedding_worker_url}}/health
+  body: none
+  auth: none
+}

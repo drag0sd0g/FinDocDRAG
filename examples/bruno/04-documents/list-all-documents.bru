@@ -1,0 +1,26 @@
+meta {
+  name: List All Ingested Documents
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{query_api_url}}/v1/documents
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{api_key}}
+}
+
+query {
+  limit: 20
+  offset: 0
+}
+
+assert {
+  res.status: eq 200
+  res.body.documents: isDefined
+  res.body.total: isDefined
+}

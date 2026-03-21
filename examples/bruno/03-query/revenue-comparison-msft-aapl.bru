@@ -1,0 +1,27 @@
+meta {
+  name: Revenue Comparison — MSFT vs AAPL
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{query_api_url}}/v1/query
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-Key: {{api_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "question": "Compare the revenue growth strategies of Microsoft and Apple in their most recent 10-K filings.",
+    "top_k": 10
+  }
+}
+
+assert {
+  res.status: eq 200
+}

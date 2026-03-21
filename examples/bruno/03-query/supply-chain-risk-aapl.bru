@@ -1,0 +1,30 @@
+meta {
+  name: Apple — Supply Chain Risk Factors
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{query_api_url}}/v1/query
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-Key: {{api_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "question": "What were Apple's main risk factors related to supply chain in their 2024 10-K?",
+    "ticker_filter": "AAPL",
+    "top_k": 5
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.degraded: eq false
+  res.body.answer: isDefined
+}

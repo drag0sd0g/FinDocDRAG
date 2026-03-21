@@ -1,0 +1,11 @@
+meta {
+  name: Ingest From config/tickers.yml
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{ingestion_url}}/v1/ingest
+  body: none
+  auth: none
+}

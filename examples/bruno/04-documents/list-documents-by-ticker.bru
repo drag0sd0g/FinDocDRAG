@@ -1,0 +1,25 @@
+meta {
+  name: List Documents — Filter by Ticker
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{query_api_url}}/v1/documents
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{api_key}}
+}
+
+query {
+  ticker: AAPL
+  limit: 10
+  offset: 0
+}
+
+assert {
+  res.status: eq 200
+}

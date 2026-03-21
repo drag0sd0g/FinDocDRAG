@@ -1,0 +1,28 @@
+meta {
+  name: Graceful Degradation (LLM Unavailable)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{query_api_url}}/v1/query
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-Key: {{api_key}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "question": "What are JPMorgan's capital adequacy disclosures?",
+    "ticker_filter": "JPM",
+    "top_k": 3
+  }
+}
+
+assert {
+  res.status: eq 200
+}
