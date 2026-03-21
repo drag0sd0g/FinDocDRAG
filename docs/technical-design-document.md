@@ -81,7 +81,7 @@ None of these approaches let a user ask a natural language question — such as 
 | ID   | Non-Goal                                                                                      |
 | ---- | --------------------------------------------------------------------------------------------- |
 | NG-1 | Building a production multi-tenant SaaS product — this is a portfolio/demonstration project.  |
-| NG-2 | Fine-tuning or training custom LLMs — we use pre-trained models via Ollama or OpenAI API.     |
+| NG-2 | Fine-tuning or training custom LLMs — we use pre-trained models via Ollama, OpenAI API, or Anthropic API. |
 | NG-3 | Supporting real-time streaming queries (WebSocket/SSE) — the API is request/response.         |
 | NG-4 | Ingesting non-SEC document sources (e.g., news, proprietary research) in the initial version. |
 | NG-5 | Building a frontend UI — the interface is the REST API (with auto-generated Swagger docs).    |
@@ -94,7 +94,7 @@ None of these approaches let a user ask a natural language question — such as 
 │                                                                      │
 │  ┌────────────┐   ┌──────────────┐   ┌────────────┐   ┌──────────┐ │
 │  │ Ingestion  │──▶│  Embedding   │──▶│  Query     │──▶│   LLM    │ │
-│  │ Service    │   │  Worker      │   │  API       │   │ (Ollama) │ │
+│  │ Service    │   │  Worker      │   │  API       │   │  (LLM)   │ │
 │  └─────┬──────┘   └──────┬───────┘   └─────┬──────┘   └──────────┘ │
 │        │                 │                  │                         │
 │        │           ┌─────▼──────┐           │                        │
@@ -166,7 +166,7 @@ Answer:
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | FR-16 | The Query API SHALL send the constructed prompt to the configured LLM backend (Ollama local or OpenAI API) and return the generated answer.                                                                                                                                                                           |
 | FR-17 | The API response SHALL include: `answer` (string), `sources` (array of objects with `chunk_id`, `ticker`, `filing_date`, `section`, `relevance_score`, and `text_preview` — first 200 characters of the chunk), `model` (string — which LLM was used), and `timing` (object with `retrieval_ms` and `generation_ms`). |
-| FR-18 | The Query API SHALL support two LLM backends, selectable via environment variable (`LLM_BACKEND`): `ollama` (default, using `mistral:7b` model) and `openai` (using `gpt-4o-mini` model).                                                                                                                             |
+| FR-18 | The Query API SHALL support three LLM backends, selectable via environment variable (`LLM_BACKEND`): `ollama` (default, using `mistral:7b` model), `openai` (using `gpt-4o-mini` model), and `claude` (using `claude-opus-4-6` model, overridable via `CLAUDE_MODEL`).                                               |
 
 ### 3.4 Document Listing
 
@@ -396,22 +396,28 @@ Response:
 **LLM Backend Abstraction:**
 
 ```python
-# Simplified interface — both backends implement this
+# Simplified interface — all backends implement this
 class LLMBackend(Protocol):
     async def generate(self, prompt: str, max_tokens: int = 1024) -> LLMResponse: ...
 
 class OllamaBackend(LLMBackend):
     # Calls local Ollama server at http://ollama:11434/api/generate
-    # Model: mistral:7b
+    # Model: mistral:7b (default); started via --profile local-llm
     ...
 
 class OpenAIBackend(LLMBackend):
     # Calls OpenAI API with model: gpt-4o-mini
     # Requires OPENAI_API_KEY environment variable
     ...
+
+class AnthropicBackend(LLMBackend):
+    # Calls Anthropic Messages API with model: claude-opus-4-6 (default)
+    # Requires ANTHROPIC_API_KEY environment variable
+    # Model overridable via CLAUDE_MODEL environment variable
+    ...
 ```
 
-The active backend is selected by the `LLM_BACKEND` environment variable (`ollama` or `openai`).
+The active backend is selected by the `LLM_BACKEND` environment variable (`ollama`, `openai`, or `claude`).
 
 #### 5.2.4 Evaluation Harness
 
@@ -510,8 +516,9 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 | ----------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Vector store            | PostgreSQL + pgvector  | Avoids introducing a separate vector database (Pinecone, Weaviate). PostgreSQL is battle-tested, and pgvector's HNSW index is sufficient for our scale (500K vectors). One fewer infrastructure component to operate. |
 | Embedding model         | all-MiniLM-L6-v2       | 384 dimensions, ~80 MB model, runs on CPU, good quality for retrieval tasks. No GPU required, no API cost. Well-benchmarked on MTEB leaderboard.                                                                      |
-| LLM (default)           | Ollama with mistral:7b | Runs locally, no API cost, sufficient quality for document QA with good instruction following. Ollama provides a simple REST API, easy to containerize.                                                               |
+| LLM (default)           | Ollama with mistral:7b | Runs locally, no API cost, sufficient quality for document QA with good instruction following. Ollama provides a simple REST API, easy to containerize. Started via Docker Compose `--profile local-llm`.            |
 | LLM (alternative)       | OpenAI gpt-4o-mini     | Higher quality answers, useful for evaluation comparison, but requires API key and incurs cost. Offered as an alternative backend, not the default.                                                                   |
+| LLM (alternative)       | Claude (Anthropic)     | High quality answers via Anthropic Messages API. No local GPU or RAM beyond base stack. Model defaults to `claude-opus-4-6`, overridable via `CLAUDE_MODEL`. Requires `ANTHROPIC_API_KEY`.                           |
 | Message queue           | Apache Kafka           | Event-driven decoupling between ingestion and embedding. Provides durability, replayability, and consumer group semantics for parallel processing.                                                                    |
 | API framework           | FastAPI                | Async-native, automatic OpenAPI doc generation, Pydantic validation, high performance. Dominant in Python ML/AI ecosystem.                                                                                            |
 | Programming language    | Python 3.12            | Required for ML/AI library ecosystem (sentence-transformers, ragas, LangChain). Type hints + mypy for safety.                                                                                                         |

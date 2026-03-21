@@ -109,21 +109,23 @@ The Query API needs an LLM to generate cited answers from retrieved context. The
 
 ### Options Considered
 
-| Option                             | Description                           | Pros                                                    | Cons                                                                      |
-| ---------------------------------- | ------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **Ollama only**                    | Local LLM server, single backend      | Fully offline, no cost, simple                          | Lower quality than cloud models, high memory usage, slow on CPU           |
-| **OpenAI only**                    | Cloud LLM API, single backend         | High quality, fast, scalable                            | Requires API key, cost per token, external dependency, not self-contained |
-| **Dual backend (Ollama + OpenAI)** | Configurable via environment variable | Best of both: offline default, cloud option for quality | Two code paths to maintain, need an abstraction layer                     |
-| **LangChain abstraction**          | Use LangChain's LLM abstraction layer | Supports many backends, community ecosystem             | Heavy dependency, abstractions can obscure behavior, version churn        |
-| **vLLM / TGI**                     | Self-hosted inference servers         | Better throughput than Ollama, production-grade         | Complex setup, GPU-oriented, overkill for single-user demo                |
+| Option                                      | Description                                  | Pros                                                             | Cons                                                                         |
+| ------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Ollama only**                             | Local LLM server, single backend             | Fully offline, no cost, simple                                   | Lower quality than cloud models, high memory usage, slow on CPU              |
+| **OpenAI only**                             | Cloud LLM API, single backend                | High quality, fast, scalable                                     | Requires API key, cost per token, external dependency, not self-contained    |
+| **Triple backend (Ollama + OpenAI + Claude)** | Configurable via environment variable      | Offline default + two cloud options for quality and flexibility  | Three code paths to maintain, need an abstraction layer                      |
+| **LangChain abstraction**                   | Use LangChain's LLM abstraction layer        | Supports many backends, community ecosystem                      | Heavy dependency, abstractions can obscure behavior, version churn           |
+| **vLLM / TGI**                              | Self-hosted inference servers                | Better throughput than Ollama, production-grade                  | Complex setup, GPU-oriented, overkill for single-user demo                   |
 
 ### Decision
 
-**Dual backend with a custom Protocol abstraction: Ollama as default, OpenAI as alternative.** Backend is selected via the `LLM_BACKEND` environment variable.
+**Triple backend with a custom Protocol abstraction: Ollama as default, OpenAI and Claude (Anthropic) as remote alternatives.** Backend is selected via the `LLM_BACKEND` environment variable (`ollama`, `openai`, or `claude`).
 
 ### Rationale
 
-The dual-backend approach satisfies two conflicting requirements. For local development and portfolio demonstration, the system must start with `docker compose up` and work without any API key -- Ollama provides this. For evaluation and quality comparison, OpenAI's GPT-4o-mini produces measurably better answers -- this is important for the evaluation harness (ADR-009) where we want to benchmark against a strong model.
+The triple-backend approach satisfies multiple deployment scenarios. For local development and portfolio demonstration, the system must start with `docker compose --profile local-llm up` and work without any API key -- Ollama provides this. For evaluation and quality comparison, both OpenAI's GPT-4o-mini and Anthropic's Claude produce measurably better answers than a locally-run 7B model. Claude is particularly useful for developers who have an Anthropic subscription but not an OpenAI key, and vice versa.
+
+Ollama is made opt-in via Docker Compose profiles (`--profile local-llm`). Running without the profile skips the Ollama container entirely, reducing the stack's RAM footprint by ~6 GB and avoiding a multi-GB model download -- this makes remote-backend workflows significantly faster to start.
 
 A LangChain-based abstraction was rejected because it introduces a large transitive dependency tree for what is ultimately a single `generate(prompt) -> text` call. The custom `LLMBackend` Protocol is 10 lines of code and does exactly what we need without framework coupling.
 
@@ -131,11 +133,12 @@ vLLM and TGI are production inference servers designed for GPU-backed, high-thro
 
 ### Consequences
 
-- Positive: System works fully offline out of the box.
-- Positive: Evaluation harness can compare Ollama and OpenAI quality side by side.
-- Positive: Minimal abstraction layer (Protocol + two implementations) is easy to understand and test.
+- Positive: System works fully offline out of the box (Ollama profile) and with remote APIs when Ollama is impractical.
+- Positive: Evaluation harness can compare Ollama, OpenAI, and Claude quality side by side.
+- Positive: Minimal abstraction layer (Protocol + three implementations) is easy to understand and test.
+- Positive: Ollama is opt-in via Docker Compose profiles; remote-backend setups skip the ~6 GB model download.
 - Negative: Ollama with Mistral 7B requires approximately 6 GB of RAM, which is significant in memory-constrained environments (TinyLlama at 637 MB is a documented fallback).
-- Negative: Two code paths means both backends need test coverage.
+- Negative: Three code paths means all three backends need test coverage.
 
 ---
 
@@ -385,7 +388,8 @@ A custom metrics script was rejected because it would require implementing the s
 
 - Positive: Automated, reproducible evaluation that can run in CI.
 - Positive: Industry-recognized metrics that hiring managers and reviewers understand.
-- Positive: Evaluation can compare Ollama vs. OpenAI quality quantitatively.
+- Positive: Evaluation can compare Ollama vs. OpenAI vs. Claude quality quantitatively.
+- Positive: The eval harness selects its judge LLM automatically: Anthropic API key → OpenAI API key → Ollama local fallback, so it works with any available credential.
 - Negative: Faithfulness scoring uses an LLM to judge LLM output, introducing circularity (mitigated by using a different model for evaluation than for generation).
 - Negative: ragas is a relatively young library; API changes between versions may require updates.
 

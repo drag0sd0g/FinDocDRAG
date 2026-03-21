@@ -36,14 +36,17 @@ lint:  ## Run ruff + mypy for all services
 	cd services/embedding-worker && PYTHONPATH=. .venv/bin/python -m mypy src/
 	cd services/query-api && PYTHONPATH=. .venv/bin/python -m mypy src/
 
-run:  ## Start the full stack with Docker Compose
+run:  ## Start the full stack with Docker Compose (includes Ollama local LLM)
+	docker compose --profile local-llm up --build
+
+run-remote:  ## Start the stack without Ollama (use LLM_BACKEND=claude or openai)
 	docker compose up --build
 
 stop:  ## Stop Docker Compose stack
-	docker compose down
+	docker compose --profile local-llm down
 
 clean:  ## Stop stack and remove volumes (destroys all data)
-	docker compose down -v
+	docker compose --profile local-llm down -v
 
 migrate:  ## Run database migrations (requires running postgres)
 	docker compose up db-migrate

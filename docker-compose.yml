@@ -85,7 +85,11 @@ services:
       start_period: 30s
 
   # ── Ollama (LLM server) ───────────────────────────────────
+  # Only started when the "local-llm" profile is active:
+  #   docker compose --profile local-llm up -d
+  # Omit the profile flag (or set LLM_BACKEND=claude/openai) to skip Ollama entirely.
   ollama:
+    profiles: [local-llm]
     image: ollama/ollama:latest
     container_name: findoc-ollama
     ports:
@@ -101,6 +105,7 @@ services:
 
   # Pull the model after Ollama is healthy
   ollama-pull:
+    profiles: [local-llm]
     image: curlimages/curl:latest
     container_name: findoc-ollama-pull
     depends_on:
@@ -183,8 +188,6 @@ services:
     depends_on:
       db-migrate:
         condition: service_completed_successfully
-      ollama:
-        condition: service_healthy
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"

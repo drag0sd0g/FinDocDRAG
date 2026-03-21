@@ -13,7 +13,7 @@ The system is composed of three independently deployable services connected by A
 ```
 SEC EDGAR  -->  Ingestion  -->  Kafka  -->  Embedding Worker  -->  PostgreSQL + pgvector
                                                                          ^
-API Client  <-->  Query API  <-->  Ollama / OpenAI                       |
+API Client  <-->  Query API  <-->  Ollama / OpenAI / Claude              |
                                       |                                  |
                                       +----------------------------------+
 ```
@@ -43,10 +43,18 @@ EDGAR_USER_AGENT=YourName your.email@example.com
 3. Start the full stack:
 
 ```bash
-docker compose up --build
+# With Ollama (local LLM, no API key needed):
+make run
+# or: docker compose --profile local-llm up --build
+
+# With a remote LLM (Claude or OpenAI, no GPU/RAM required):
+export LLM_BACKEND=claude          # or: export LLM_BACKEND=openai
+export ANTHROPIC_API_KEY=sk-ant-…  # or: export OPENAI_API_KEY=sk-…
+make run-remote
+# or: docker compose up --build
 ```
 
-On the first run this will pull container images, build the three services, run database migrations, and download the embedding model and the Ollama LLM. Subsequent starts reuse cached layers and volumes.
+On the first run this will pull container images, build the three services, and run database migrations. If using Ollama (`make run`), the LLM model is downloaded automatically on first start (~4 GB). Subsequent starts reuse cached layers and volumes.
 
 4. Verify the services are running:
 
@@ -147,40 +155,45 @@ make lint     # Runs ruff (linter) and mypy (type checker)
 
 ### Makefile targets
 
-| Target               | Description                                       |
-| -------------------- | ------------------------------------------------- |
-| `make setup`         | Create virtual environments, install dependencies |
-| `make test`          | Run pytest for all services                       |
-| `make lint`          | Run ruff and mypy                                 |
-| `make run`           | `docker compose up --build`                       |
-| `make stop`          | `docker compose down`                             |
-| `make clean`         | Stop stack and remove all volumes                 |
-| `make migrate`       | Run database migrations                           |
-| `make docker-build`  | Build Docker images only                          |
-| `make eval`          | Run the RAG evaluation harness                    |
-| `make helm-deploy`   | Deploy to Kubernetes via Helm                     |
-| `make helm-teardown` | Remove the Helm release                           |
+| Target               | Description                                                     |
+| -------------------- | --------------------------------------------------------------- |
+| `make setup`         | Create virtual environments, install dependencies               |
+| `make test`          | Run pytest for all services                                     |
+| `make lint`          | Run ruff and mypy                                               |
+| `make run`           | Start full stack including Ollama (`--profile local-llm`)       |
+| `make run-remote`    | Start stack without Ollama (for `LLM_BACKEND=claude` or `openai`) |
+| `make stop`          | Stop Docker Compose stack                                       |
+| `make clean`         | Stop stack and remove all volumes                               |
+| `make migrate`       | Run database migrations                                         |
+| `make docker-build`  | Build Docker images only                                        |
+| `make eval`          | Run the RAG evaluation harness                                  |
+| `make helm-deploy`   | Deploy to Kubernetes via Helm                                   |
+| `make helm-teardown` | Remove the Helm release                                         |
 
 ## Configuration
 
 All configuration is driven by environment variables. See `.env.example` for the full list with descriptions. Key variables:
 
-| Variable           | Default                                  | Description                         |
-| ------------------ | ---------------------------------------- | ----------------------------------- |
-| `LLM_BACKEND`      | `ollama`                                 | LLM provider: `ollama` or `openai`  |
-| `OLLAMA_MODEL`     | `mistral:7b`                             | Model to use when backend is Ollama |
-| `OPENAI_API_KEY`   | (empty)                                  | Required when `LLM_BACKEND=openai`  |
-| `API_KEYS`         | `dev-key-1,dev-key-2`                    | Comma-separated valid API keys      |
-| `EDGAR_USER_AGENT` | `FinDocRAG findocrag@example.com`        | SEC-required identification string  |
-| `EMBEDDING_MODEL`  | `sentence-transformers/all-MiniLM-L6-v2` | Sentence-transformers model name    |
+| Variable            | Default                                  | Description                                              |
+| ------------------- | ---------------------------------------- | -------------------------------------------------------- |
+| `LLM_BACKEND`       | `ollama`                                 | LLM provider: `ollama`, `openai`, or `claude`            |
+| `OLLAMA_MODEL`      | `mistral:7b`                             | Model to use when backend is Ollama                      |
+| `OPENAI_API_KEY`    | (empty)                                  | Required when `LLM_BACKEND=openai`                       |
+| `ANTHROPIC_API_KEY` | (empty)                                  | Required when `LLM_BACKEND=claude`                       |
+| `CLAUDE_MODEL`      | `claude-opus-4-6`                        | Claude model to use when backend is claude               |
+| `API_KEYS`          | `dev-key-1,dev-key-2`                    | Comma-separated valid API keys                           |
+| `EDGAR_USER_AGENT`  | `FinDocRAG findocrag@example.com`        | SEC-required identification string                       |
+| `EMBEDDING_MODEL`   | `sentence-transformers/all-MiniLM-L6-v2` | Sentence-transformers model name                         |
 
 ## LLM Backends
 
 The Query API supports two LLM backends, selectable via the `LLM_BACKEND` environment variable:
 
-**Ollama (default)** -- Runs locally inside the Docker Compose stack. No API key required. The model is pulled automatically on first start. Suitable for development and self-hosted deployments.
+**Ollama (default)** -- Runs locally inside the Docker Compose stack. No API key required. The model is pulled automatically on first start. Start with `make run` (or `docker compose --profile local-llm up`). Suitable for development and self-hosted deployments. Requires ~6 GB RAM for `mistral:7b`.
 
-**OpenAI** -- Calls the OpenAI chat completions API. Set `LLM_BACKEND=openai` and provide a valid `OPENAI_API_KEY`. Uses `gpt-4o-mini` by default. Useful for higher-quality answers and evaluation comparisons.
+**OpenAI** -- Calls the OpenAI chat completions API. Set `LLM_BACKEND=openai` and provide a valid `OPENAI_API_KEY`. Uses `gpt-4o-mini` by default. Start with `make run-remote`. Useful for higher-quality answers and evaluation comparisons.
+
+**Claude (Anthropic)** -- Calls the Anthropic messages API. Set `LLM_BACKEND=claude` and provide a valid `ANTHROPIC_API_KEY`. Uses `claude-opus-4-6` by default (override with `CLAUDE_MODEL`). Start with `make run-remote`. No local GPU or RAM requirements beyond the base stack.
 
 ## API Authentication
 
