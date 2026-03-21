@@ -155,35 +155,36 @@ make lint     # Runs ruff (linter) and mypy (type checker)
 
 ### Makefile targets
 
-| Target               | Description                                                     |
-| -------------------- | --------------------------------------------------------------- |
-| `make setup`         | Create virtual environments, install dependencies               |
-| `make test`          | Run pytest for all services                                     |
-| `make lint`          | Run ruff and mypy                                               |
-| `make run`           | Start full stack including Ollama (`--profile local-llm`)       |
+| Target               | Description                                                       |
+| -------------------- | ----------------------------------------------------------------- |
+| `make setup`         | Create virtual environments, install dependencies                 |
+| `make test`          | Run pytest for all services                                       |
+| `make lint`          | Run ruff and mypy                                                 |
+| `make run`           | Start full stack including Ollama (`--profile local-llm`)         |
 | `make run-remote`    | Start stack without Ollama (for `LLM_BACKEND=claude` or `openai`) |
-| `make stop`          | Stop Docker Compose stack                                       |
-| `make clean`         | Stop stack and remove all volumes                               |
-| `make migrate`       | Run database migrations                                         |
-| `make docker-build`  | Build Docker images only                                        |
-| `make eval`          | Run the RAG evaluation harness                                  |
-| `make helm-deploy`   | Deploy to Kubernetes via Helm                                   |
-| `make helm-teardown` | Remove the Helm release                                         |
+| `make stop`          | Stop Docker Compose stack                                         |
+| `make clean`         | Stop stack and remove all volumes                                 |
+| `make migrate`       | Run database migrations                                           |
+| `make docker-build`  | Build Docker images only                                          |
+| `make eval`          | Run the RAG evaluation harness                                    |
+| `make helm-deploy`   | Deploy to Kubernetes via Helm                                     |
+| `make helm-test`     | Run Helm unit tests (requires helm-unittest plugin)               |
+| `make helm-teardown` | Remove the Helm release                                           |
 
 ## Configuration
 
 All configuration is driven by environment variables. See `.env.example` for the full list with descriptions. Key variables:
 
-| Variable            | Default                                  | Description                                              |
-| ------------------- | ---------------------------------------- | -------------------------------------------------------- |
-| `LLM_BACKEND`       | `ollama`                                 | LLM provider: `ollama`, `openai`, or `claude`            |
-| `OLLAMA_MODEL`      | `mistral:7b`                             | Model to use when backend is Ollama                      |
-| `OPENAI_API_KEY`    | (empty)                                  | Required when `LLM_BACKEND=openai`                       |
-| `ANTHROPIC_API_KEY` | (empty)                                  | Required when `LLM_BACKEND=claude`                       |
-| `CLAUDE_MODEL`      | `claude-opus-4-6`                        | Claude model to use when backend is claude               |
-| `API_KEYS`          | `dev-key-1,dev-key-2`                    | Comma-separated valid API keys                           |
-| `EDGAR_USER_AGENT`  | `FinDocRAG findocrag@example.com`        | SEC-required identification string                       |
-| `EMBEDDING_MODEL`   | `sentence-transformers/all-MiniLM-L6-v2` | Sentence-transformers model name                         |
+| Variable            | Default                                  | Description                                   |
+| ------------------- | ---------------------------------------- | --------------------------------------------- |
+| `LLM_BACKEND`       | `ollama`                                 | LLM provider: `ollama`, `openai`, or `claude` |
+| `OLLAMA_MODEL`      | `mistral:7b`                             | Model to use when backend is Ollama           |
+| `OPENAI_API_KEY`    | (empty)                                  | Required when `LLM_BACKEND=openai`            |
+| `ANTHROPIC_API_KEY` | (empty)                                  | Required when `LLM_BACKEND=claude`            |
+| `CLAUDE_MODEL`      | `claude-opus-4-6`                        | Claude model to use when backend is claude    |
+| `API_KEYS`          | `dev-key-1,dev-key-2`                    | Comma-separated valid API keys                |
+| `EDGAR_USER_AGENT`  | `FinDocRAG findocrag@example.com`        | SEC-required identification string            |
+| `EMBEDDING_MODEL`   | `sentence-transformers/all-MiniLM-L6-v2` | Sentence-transformers model name              |
 
 ## LLM Backends
 
