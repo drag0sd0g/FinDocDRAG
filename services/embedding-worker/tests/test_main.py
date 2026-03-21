@@ -24,7 +24,7 @@ class TestHealthEndpoints:
         assert response.status_code == 200
         assert response.json() == {"status": "healthy"}
 
-    def test_ready_returns_not_ready_by_default(self) -> None:
+    def test_ready_returns_503_when_not_initialized(self) -> None:
         from fastapi.testclient import TestClient
 
         import src.main as main_mod
@@ -37,8 +37,8 @@ class TestHealthEndpoints:
         try:
             client = TestClient(app=main_mod.app, raise_server_exceptions=False)
             response = client.get("/ready")
-            assert response.status_code == 200
-            assert response.json() == {"status": "not ready"}
+            assert response.status_code == 503
+            assert response.json() == {"detail": "Service not initialized"}
         finally:
             main_mod._embedder = original_embedder
             main_mod._store = original_store

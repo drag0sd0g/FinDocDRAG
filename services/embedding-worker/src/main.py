@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 import uvicorn
 from confluent_kafka import Consumer, KafkaError, Producer
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from prometheus_client import make_asgi_app
 
 from src.chunker import chunk_filing
@@ -279,7 +279,7 @@ async def health() -> dict[str, str]:
 async def ready() -> dict[str, str]:
     """Readiness probe (FR-22) — ready when model is loaded and DB connected."""
     if _embedder is None or _store is None:
-        return {"status": "not ready"}
+        raise HTTPException(status_code=503, detail="Service not initialized")
     return {"status": "ready"}
 
 
