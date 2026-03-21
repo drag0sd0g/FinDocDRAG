@@ -16,6 +16,7 @@ References:
 
 import logging
 import os
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from logging import LogRecord
@@ -63,6 +64,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 structlog.configure(
     processors=[
+        structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
@@ -140,6 +142,20 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
+
+# ── Request-ID middleware (TDD Section 8.3) ───────────────────────
+
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next: object) -> Response:
+    """Attach a request_id to every request for log correlation (TDD 8.3)."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+    request.state.request_id = request_id
+    response = await call_next(request)  # type: ignore[operator]
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 # ── Mount Prometheus /metrics endpoint (TDD: Section 8.1) ────────
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
@@ -160,6 +176,15 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Respo
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    """Liveness probe (FR-21) — healthy when DB is reachable."""
+    if _retriever is None:
+        raise HTTPException(status_code=503, detail="unhealthy: not initialized")
+    try:
+        cur = _retriever._get_conn().cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="unhealthy: db_unreachable") from exc
     return {"status": "healthy"}
 
 
@@ -210,7 +235,7 @@ async def query(
         total_ms=result.timing.total_ms,
     )
 
-    return result
+    return result.model_copy(update={"request_id": request.state.request_id})
 
 
 # ── GET /v1/documents (FR-19, FR-20) ────────────────────────────

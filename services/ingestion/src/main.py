@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from logging import LogRecord
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import aiohttp
 import structlog
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
@@ -33,13 +35,11 @@ from src.edgar_client import EdgarClient
 from src.kafka_producer import FilingProducer
 from src.metrics import FILINGS_FETCHED_TOTAL
 
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
-
 # ── Structured logging (TDD: Section 8.3) ───────────────────────
 
 structlog.configure(
     processors=[
+        structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
@@ -125,11 +125,33 @@ metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
 
 
+# ── Request-ID middleware (TDD Section 8.3) ───────────────────────
+
+@app.middleware("http")
+async def _request_id_middleware(request: Request, call_next: object) -> Response:
+    """Attach a request_id to every request for log correlation (TDD 8.3)."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+    request.state.request_id = request_id
+    response = await call_next(request)  # type: ignore[operator]
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 # ── Health & Readiness (FR-21, FR-22) ────────────────────────────
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    """Liveness probe — returns healthy if the process is running."""
+    """Liveness probe (FR-21) — healthy when DB is reachable."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="unhealthy: not initialized")
+    try:
+        cur = _db._get_conn().cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="unhealthy: db_unreachable") from exc
     return {"status": "healthy"}
 
 

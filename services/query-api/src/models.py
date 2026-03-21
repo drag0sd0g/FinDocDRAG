@@ -50,6 +50,7 @@ class QueryResponse(BaseModel):
     model: str
     timing: TimingInfo
     degraded: bool = False
+    request_id: str = ""
 
 
 # ── Documents endpoint ───────────────────────────────────────────

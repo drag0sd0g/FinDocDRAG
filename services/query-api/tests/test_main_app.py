@@ -18,12 +18,40 @@ class TestHealthAndReady:
     def test_health_returns_healthy(self) -> None:
         from fastapi.testclient import TestClient
 
-        from src.main import app
+        import src.main as main_mod
 
-        client = TestClient(app, raise_server_exceptions=False)
-        response = client.get("/health")
-        assert response.status_code == 200
-        assert response.json() == {"status": "healthy"}
+        mock_retriever = MagicMock()
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        mock_retriever._get_conn.return_value = mock_conn
+
+        original_retriever = main_mod._retriever
+        main_mod._retriever = mock_retriever
+
+        try:
+            client = TestClient(app=main_mod.app, raise_server_exceptions=False)
+            response = client.get("/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "healthy"}
+            assert "X-Request-ID" in response.headers
+        finally:
+            main_mod._retriever = original_retriever
+
+    def test_health_returns_503_when_not_initialized(self) -> None:
+        from fastapi.testclient import TestClient
+
+        import src.main as main_mod
+
+        original_retriever = main_mod._retriever
+        main_mod._retriever = None
+
+        try:
+            client = TestClient(app=main_mod.app, raise_server_exceptions=False)
+            response = client.get("/health")
+            assert response.status_code == 503
+        finally:
+            main_mod._retriever = original_retriever
 
     def test_ready_returns_503_when_not_initialized(self) -> None:
         from fastapi.testclient import TestClient
@@ -135,6 +163,9 @@ class TestQueryEndpoint:
             assert data["answer"] == "Revenue was $394B."
             assert len(data["sources"]) == 1
             assert data["degraded"] is False
+            assert "request_id" in data
+            assert len(data["request_id"]) == 36  # UUID format
+            assert "X-Request-ID" in response.headers
         finally:
             main_mod._retriever = original_retriever
             main_mod._generator = original_generator

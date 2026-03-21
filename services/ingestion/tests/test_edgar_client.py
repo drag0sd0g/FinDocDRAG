@@ -435,15 +435,44 @@ class TestFastAPIApp:
     """
 
     def test_health_endpoint(self) -> None:
-        """GET /health returns healthy status."""
+        """GET /health returns healthy when DB is reachable."""
         from fastapi.testclient import TestClient
 
-        from src.main import app
+        import src.main as main_module
 
-        client = TestClient(app)
-        response = client.get("/health")
-        assert response.status_code == 200
-        assert response.json() == {"status": "healthy"}
+        mock_db = MagicMock()
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        mock_db._get_conn.return_value = mock_conn
+
+        original_db = main_module._db
+        main_module._db = mock_db
+
+        try:
+            client = TestClient(app=main_module.app, raise_server_exceptions=False)
+            response = client.get("/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "healthy"}
+            assert "X-Request-ID" in response.headers
+        finally:
+            main_module._db = original_db
+
+    def test_health_endpoint_not_initialized(self) -> None:
+        """GET /health returns 503 when not initialized."""
+        from fastapi.testclient import TestClient
+
+        import src.main as main_module
+
+        original_db = main_module._db
+        main_module._db = None
+
+        try:
+            client = TestClient(app=main_module.app, raise_server_exceptions=False)
+            response = client.get("/health")
+            assert response.status_code == 503
+        finally:
+            main_module._db = original_db
 
     def test_ready_endpoint_not_initialized(self) -> None:
         """GET /ready returns 503 when service is not initialized."""

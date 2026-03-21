@@ -84,6 +84,24 @@ services:
       retries: 10
       start_period: 30s
 
+  # ── Kafka topic setup (idempotent) ───────────────────────
+  kafka-setup:
+    image: apache/kafka:latest
+    container_name: findoc-kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      sh -c '
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
+          --topic filings.dlq \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=2592000000
+      '
+    restart: "no"
+
   # ── Ollama (LLM server) ───────────────────────────────────
   # Only started when the "local-llm" profile is active:
   #   docker compose --profile local-llm up -d

@@ -17,12 +17,71 @@ class TestHealthEndpoints:
     def test_health_returns_healthy(self) -> None:
         from fastapi.testclient import TestClient
 
-        from src.main import app
+        import src.main as main_mod
 
-        client = TestClient(app, raise_server_exceptions=False)
-        response = client.get("/health")
-        assert response.status_code == 200
-        assert response.json() == {"status": "healthy"}
+        mock_store = MagicMock()
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        mock_store._get_conn.return_value = mock_conn
+
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True
+
+        original_store = main_mod._store
+        original_thread = main_mod._consumer_thread
+        main_mod._store = mock_store
+        main_mod._consumer_thread = mock_thread
+
+        try:
+            client = TestClient(app=main_mod.app, raise_server_exceptions=False)
+            response = client.get("/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "healthy"}
+            assert "X-Request-ID" in response.headers
+        finally:
+            main_mod._store = original_store
+            main_mod._consumer_thread = original_thread
+
+    def test_health_returns_503_when_not_initialized(self) -> None:
+        from fastapi.testclient import TestClient
+
+        import src.main as main_mod
+
+        original_store = main_mod._store
+        original_thread = main_mod._consumer_thread
+        main_mod._store = None
+        main_mod._consumer_thread = None
+
+        try:
+            client = TestClient(app=main_mod.app, raise_server_exceptions=False)
+            response = client.get("/health")
+            assert response.status_code == 503
+        finally:
+            main_mod._store = original_store
+            main_mod._consumer_thread = original_thread
+
+    def test_health_returns_503_when_consumer_dead(self) -> None:
+        from fastapi.testclient import TestClient
+
+        import src.main as main_mod
+
+        mock_store = MagicMock()
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = False
+
+        original_store = main_mod._store
+        original_thread = main_mod._consumer_thread
+        main_mod._store = mock_store
+        main_mod._consumer_thread = mock_thread
+
+        try:
+            client = TestClient(app=main_mod.app, raise_server_exceptions=False)
+            response = client.get("/health")
+            assert response.status_code == 503
+        finally:
+            main_mod._store = original_store
+            main_mod._consumer_thread = original_thread
 
     def test_ready_returns_503_when_not_initialized(self) -> None:
         from fastapi.testclient import TestClient
