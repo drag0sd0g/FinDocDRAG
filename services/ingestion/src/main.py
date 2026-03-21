@@ -210,7 +210,6 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
         for entry in ticker_list:
             symbol = entry["symbol"]
             name = entry.get("name", symbol)
-            tickers_processed.append(symbol)
             t_ticker = time.perf_counter()
 
             logger.info("ingest_ticker_started", ticker=symbol)
@@ -256,6 +255,7 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
                     filings_published += 1
                     FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="success").inc()
 
+                tickers_processed.append(symbol)
                 logger.info(
                     "ingest_ticker_complete",
                     ticker=symbol,

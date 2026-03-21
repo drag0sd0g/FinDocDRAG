@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from src.auth import verify_api_key
 from src.llm.backend import LLMResponse
@@ -177,6 +178,18 @@ class TestModels:
         req = QueryRequest(question="Revenue?", ticker_filter="AAPL", top_k=10)
         assert req.ticker_filter == "AAPL"
         assert req.top_k == 10
+
+    def test_empty_question_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            QueryRequest(question="")
+
+    def test_whitespace_only_question_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            QueryRequest(question="   ")
+
+    def test_question_is_stripped(self) -> None:
+        req = QueryRequest(question="  What is revenue?  ")
+        assert req.question == "What is revenue?"
 
     def test_source_chunk_text_preview(self) -> None:
         s = SourceChunk(

@@ -10,7 +10,7 @@ References:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ── Query endpoint ───────────────────────────────────────────────
 
@@ -20,6 +20,13 @@ class QueryRequest(BaseModel):
     question: str
     ticker_filter: str | None = None
     top_k: int = Field(default=5, ge=1, le=20)
+
+    @field_validator("question")
+    @classmethod
+    def question_must_not_be_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("question must not be empty or whitespace")
+        return v.strip()
 
 
 class SourceChunk(BaseModel):
