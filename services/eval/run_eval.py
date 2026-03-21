@@ -198,16 +198,63 @@ def compute_ragas_metrics(
         )
         return {}, []
 
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.error(
-            "OPENAI_API_KEY is not set. ragas requires an LLM judge for all "
-            "three metrics.  Export OPENAI_API_KEY and re-run.\n"
-            "  export OPENAI_API_KEY=sk-..."
-        )
-        return {}, []
+    # Resolve which LLM to use as ragas judge.
+    # Priority: ANTHROPIC_API_KEY → OPENAI_API_KEY → Ollama (local fallback)
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    ollama_url = os.getenv("EVAL_OLLAMA_URL", "http://localhost:11434")
+    ollama_model = os.getenv("EVAL_OLLAMA_MODEL", "mistral:7b")
+
+    ragas_llm = None
+    judge_label = ""
+
+    if anthropic_key:
+        try:
+            from langchain_anthropic import ChatAnthropic
+            from ragas.llms import LangchainLLMWrapper
+
+            # claude-haiku-4-5 is cost-effective for evaluation scoring
+            claude_judge_model = os.getenv("CLAUDE_JUDGE_MODEL", "claude-haiku-4-5")
+            ragas_llm = LangchainLLMWrapper(
+                ChatAnthropic(model=claude_judge_model, api_key=anthropic_key)
+            )
+            judge_label = f"Anthropic/{claude_judge_model}"
+        except ImportError:
+            logger.warning(
+                "langchain-anthropic not installed — trying next option. "
+                "Run: pip install langchain-anthropic"
+            )
+
+    if ragas_llm is None and openai_key:
+        # ragas picks up OPENAI_API_KEY automatically; leave ragas_llm as None
+        judge_label = "OpenAI (auto)"
+
+    if ragas_llm is None and not openai_key:
+        # Fallback: local Ollama (heavy on RAM — stop other services first)
+        try:
+            from langchain_community.chat_models import ChatOllama
+            from ragas.llms import LangchainLLMWrapper
+
+            ragas_llm = LangchainLLMWrapper(
+                ChatOllama(model=ollama_model, base_url=ollama_url)
+            )
+            judge_label = f"Ollama/{ollama_model} (local)"
+            logger.warning(
+                "No API key found — falling back to local Ollama (%s) for ragas judge. "
+                "RAM usage will be high. Set ANTHROPIC_API_KEY for a lighter alternative.",
+                ollama_model,
+            )
+        except ImportError:
+            logger.error(
+                "langchain-community not installed and no API key found. "
+                "Run: pip install langchain-community  OR  export ANTHROPIC_API_KEY=sk-ant-..."
+            )
+            return {}, []
 
     logger.info(
-        "Building ragas EvaluationDataset from %d valid samples …", len(valid)
+        "Building ragas EvaluationDataset from %d valid samples (judge: %s) …",
+        len(valid),
+        judge_label,
     )
     samples = [
         SingleTurnSample(
@@ -222,7 +269,18 @@ def compute_ragas_metrics(
     ]
 
     dataset = EvaluationDataset(samples=samples)
-    metrics = [AnswerRelevancy(), Faithfulness(), ContextPrecision()]
+
+    # Inject judge LLM into each metric when explicitly configured
+    if ragas_llm is not None:
+        metrics = [
+            AnswerRelevancy(llm=ragas_llm),
+            Faithfulness(llm=ragas_llm),
+            ContextPrecision(llm=ragas_llm),
+        ]
+    else:
+        # OpenAI path: ragas reads OPENAI_API_KEY from the environment automatically
+        metrics = [AnswerRelevancy(), Faithfulness(), ContextPrecision()]
+
     metric_names = ["answer_relevancy", "faithfulness", "context_precision"]
 
     logger.info(

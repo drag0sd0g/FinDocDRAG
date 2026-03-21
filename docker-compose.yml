@@ -195,6 +195,8 @@ services:
       OLLAMA_URL: "http://ollama:11434"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-mistral:7b}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      CLAUDE_MODEL: "${CLAUDE_MODEL:-claude-opus-4-6}"
       EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
       API_KEYS: "${API_KEYS:-dev-key-1,dev-key-2}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"

@@ -30,6 +30,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.auth import verify_api_key
+from src.llm.anthropic_backend import AnthropicBackend
 from src.llm.ollama_backend import OllamaBackend
 from src.llm.openai_backend import OpenAIBackend
 from src.metrics import DEGRADED_RESPONSES_TOTAL, REQUESTS_TOTAL
@@ -57,6 +58,7 @@ POSTGRES_DSN = (
 LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
@@ -102,8 +104,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _retriever = Retriever(dsn=POSTGRES_DSN, model_name=EMBEDDING_MODEL)
     _retriever.connect()
 
-    # LLM backend (FR-18)
-    llm = OpenAIBackend() if LLM_BACKEND == "openai" else OllamaBackend(base_url=OLLAMA_URL, model=OLLAMA_MODEL)  # type: ignore[assignment]
+    # LLM backend (FR-18) — select via LLM_BACKEND env var
+    if LLM_BACKEND == "openai":
+        llm = OpenAIBackend()  # type: ignore[assignment]
+    elif LLM_BACKEND == "claude":
+        llm = AnthropicBackend(model=CLAUDE_MODEL)  # type: ignore[assignment]
+    else:
+        llm = OllamaBackend(base_url=OLLAMA_URL, model=OLLAMA_MODEL)  # type: ignore[assignment]
 
     _generator = RAGGenerator(retriever=_retriever, llm=llm)
 

@@ -8,6 +8,7 @@ pgvector==0.3.*
 sentence-transformers==3.3.*
 aiohttp==3.11.*
 openai==1.58.*
+anthropic>=0.40.0
 structlog==24.4.*
 prometheus-client==0.21.*
 slowapi==0.1.*
