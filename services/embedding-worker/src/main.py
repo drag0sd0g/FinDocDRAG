@@ -275,7 +275,9 @@ def _consume_loop() -> None:
                     (lo, hi) = consumer.get_watermark_offsets(tp, cached=True)
                     committed = consumer.committed([tp])[0].offset
                     if committed >= 0 and hi >= 0:
-                        KAFKA_LAG.labels(partition=str(tp.partition)).set(hi - committed)
+                        KAFKA_LAG.labels(partition=str(tp.partition)).set(
+                            max(0, hi - committed)
+                        )
             except Exception:
                 pass  # lag reporting is best-effort
 

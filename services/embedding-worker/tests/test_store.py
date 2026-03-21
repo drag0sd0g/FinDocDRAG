@@ -74,10 +74,14 @@ class TestStoreChunks:
         result = store.store_chunks([], [])
         assert result == 0
 
+    @patch("src.store.execute_values")
     @patch("src.store.psycopg2")
     @patch("src.store.register_vector")
     def test_store_chunks_executes_and_commits(
-        self, mock_register: MagicMock, mock_psycopg2: MagicMock
+        self,
+        mock_register: MagicMock,
+        mock_psycopg2: MagicMock,
+        mock_execute_values: MagicMock,
     ) -> None:
         mock_conn = MagicMock()
         mock_cur = MagicMock()
@@ -104,18 +108,24 @@ class TestStoreChunks:
         result = store.store_chunks([chunk], [embedding])
 
         assert result == 1
-        mock_cur.executemany.assert_called_once()
+        mock_execute_values.assert_called_once()
+        # First positional arg to execute_values must be our cursor
+        assert mock_execute_values.call_args[0][0] is mock_cur
         mock_conn.commit.assert_called_once()
         mock_cur.close.assert_called_once()
 
+    @patch("src.store.execute_values")
     @patch("src.store.psycopg2")
     @patch("src.store.register_vector")
     def test_store_chunks_rolls_back_on_error(
-        self, mock_register: MagicMock, mock_psycopg2: MagicMock
+        self,
+        mock_register: MagicMock,
+        mock_psycopg2: MagicMock,
+        mock_execute_values: MagicMock,
     ) -> None:
         mock_conn = MagicMock()
         mock_cur = MagicMock()
-        mock_cur.executemany.side_effect = RuntimeError("DB error")
+        mock_execute_values.side_effect = RuntimeError("DB error")
         mock_conn.cursor.return_value = mock_cur
         mock_conn.closed = False
         mock_psycopg2.connect.return_value = mock_conn

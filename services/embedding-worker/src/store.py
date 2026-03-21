@@ -11,9 +11,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import psycopg2
-import psycopg2.extras
 import structlog
 from pgvector.psycopg2 import register_vector
+from psycopg2.extras import execute_values
 
 if TYPE_CHECKING:
     from src.chunker import Chunk
@@ -66,36 +66,35 @@ class ChunkStore:
 
         conn = self._get_conn()
 
+        # Build a single-statement batch INSERT using execute_values so that
+        # cursor.rowcount reflects the total number of rows actually inserted
+        # (executemany sets rowcount to the *last* statement only).
         query = """
             INSERT INTO document_chunks
                 (chunk_id, accession_number, ticker, filing_date,
                  section_name, chunk_index, chunk_text, token_count, embedding)
-            VALUES
-                (%(chunk_id)s, %(accession_number)s, %(ticker)s, %(filing_date)s,
-                 %(section_name)s, %(chunk_index)s, %(chunk_text)s, %(token_count)s,
-                 %(embedding)s)
+            VALUES %s
             ON CONFLICT (chunk_id) DO NOTHING
         """
 
-        rows: list[dict[str, Any]] = []
-        for chunk, emb in zip(chunks, embeddings, strict=True):
-            rows.append(
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "accession_number": chunk.accession_number,
-                    "ticker": chunk.ticker,
-                    "filing_date": chunk.filing_date,
-                    "section_name": chunk.section_name,
-                    "chunk_index": chunk.chunk_index,
-                    "chunk_text": chunk.text,
-                    "token_count": chunk.token_count,
-                    "embedding": emb,
-                }
+        rows: list[tuple[Any, ...]] = [
+            (
+                chunk.chunk_id,
+                chunk.accession_number,
+                chunk.ticker,
+                chunk.filing_date,
+                chunk.section_name,
+                chunk.chunk_index,
+                chunk.text,
+                chunk.token_count,
+                emb,
             )
+            for chunk, emb in zip(chunks, embeddings, strict=True)
+        ]
 
         cur = conn.cursor()
         try:
-            cur.executemany(query, rows)
+            execute_values(cur, query, rows)
             inserted = cur.rowcount
             conn.commit()
             logger.info("chunks_stored", count=inserted, total=len(chunks))

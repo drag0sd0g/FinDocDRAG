@@ -52,21 +52,19 @@ class RAGGenerator:
         total_start = time.perf_counter()
 
         # ── Retrieve ─────────────────────────────────────────────
+        # Time the full retrieve() call so we can split it into:
+        #   embedding_ms  — query vector generation (returned by retriever)
+        #   retrieval_ms  — pgvector SQL query (total minus embedding)
+        t0_retrieve = time.perf_counter()
         chunks, _, embedding_ms = self._retriever.retrieve(
             question=question,
             top_k=top_k,
             ticker_filter=ticker_filter,
         )
+        retrieval_ms = (time.perf_counter() - t0_retrieve) * 1000 - embedding_ms
 
-        # Record embedding duration metric (convert ms → seconds)
+        # Record embedding and retrieval duration metrics (convert ms → seconds)
         EMBEDDING_DURATION.observe(embedding_ms / 1000.0)
-
-        retrieval_start = time.perf_counter()
-        # retrieval_ms is measured inside retriever; we compute the
-        # total overhead here
-        retrieval_ms = (time.perf_counter() - retrieval_start) * 1000
-
-        # Record retrieval duration metric
         RETRIEVAL_DURATION.observe(retrieval_ms / 1000.0)
 
         # Record top-1 relevance score

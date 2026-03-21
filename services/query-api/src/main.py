@@ -14,13 +14,11 @@ References:
   - TDD: Section 9.3 (rate limiting)
 """
 
-from __future__ import annotations
-
 import logging
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from logging import LogRecord
-from typing import TYPE_CHECKING
 
 import structlog
 import uvicorn
@@ -28,6 +26,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from prometheus_client import make_asgi_app
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
 from src.auth import verify_api_key
@@ -43,9 +42,6 @@ from src.models import (
 )
 from src.rag.generator import RAGGenerator
 from src.rag.retriever import Retriever
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
 
 # ── Configuration ────────────────────────────────────────────────
 
@@ -142,6 +138,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 
 # ── Mount Prometheus /metrics endpoint (TDD: Section 8.1) ────────
 metrics_app = make_asgi_app()
@@ -176,6 +173,7 @@ async def ready() -> dict[str, str]:
 # ── POST /v1/query (FR-12 through FR-18) ────────────────────────
 
 @app.post("/v1/query", response_model=QueryResponse)
+@limiter.limit("30/minute")
 async def query(
     body: QueryRequest,
     request: Request,
