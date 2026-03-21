@@ -1,3 +1,5 @@
+[English](design-decisions.md)
+
 # アーキテクチャ設計上の意思決定
 
 本文書は、FinDoc RAG の設計および実装における主要なアーキテクチャ上の意思決定を記録したものです。各決定は、軽量な ADR（Architectural Decision Record）フォーマットに従っています: コンテキスト、検討したオプション、決定内容、そして結果。

@@ -1,3 +1,5 @@
+[English](README.md)
+
 # FinDocRAG — API 使用例
 
 このディレクトリには、FinDocRAG API を探索するための [Bruno](https://www.usebruno.com/) コレクションと、実際のエンドツーエンドのクエリレスポンスを示す具体的な注釈付きサンプルが含まれています。

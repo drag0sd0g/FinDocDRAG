@@ -1,3 +1,5 @@
+[日本語](README.ja.md)
+
 # FinDoc RAG
 
 A Retrieval-Augmented Generation platform for financial document intelligence. FinDoc RAG ingests SEC 10-K filings, chunks and embeds them into a vector store, and exposes a REST API that answers natural language questions with cited sources.

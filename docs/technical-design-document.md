@@ -1,3 +1,5 @@
+[日本語](technical-design-document.ja.md)
+
 # Financial Document Intelligence Platform — Technical Design Document
 
 ## Table of Contents

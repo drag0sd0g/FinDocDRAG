@@ -1,3 +1,5 @@
+[日本語](design-decisions.ja.md)
+
 # Architectural Design Decisions
 
 This document records the key architectural decisions made during the design and implementation of FinDoc RAG. Each decision follows a lightweight ADR (Architectural Decision Record) format: context, options considered, decision, and consequences.

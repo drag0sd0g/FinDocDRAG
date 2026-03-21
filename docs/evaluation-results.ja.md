@@ -1,3 +1,5 @@
+[English](evaluation-results.md)
+
 # 評価結果
 
 `ragas` 評価ハーネス（`services/eval/run_eval.py`）が生成する RAG 品質メトリクスです。

@@ -1,3 +1,5 @@
+[English](technical-design-document.md)
+
 # 金融ドキュメント・インテリジェンス・プラットフォーム — 技術設計書
 
 ## 目次

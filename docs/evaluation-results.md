@@ -1,3 +1,5 @@
+[日本語](evaluation-results.ja.md)
+
 # Evaluation Results
 
 RAG quality metrics produced by the `ragas` evaluation harness (`services/eval/run_eval.py`).

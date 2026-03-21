@@ -1,3 +1,5 @@
+[日本語](README.ja.md)
+
 # FinDocRAG — API Examples
 
 This directory contains a [Bruno](https://www.usebruno.com/) collection for exploring the FinDocRAG API and a concrete annotated example showing a real end-to-end query response.
