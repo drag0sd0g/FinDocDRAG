@@ -47,3 +47,13 @@ KAFKA_LAG = Gauge(
     "Consumer lag per partition",
     ["partition"],
 )
+
+DRIFT_SCORE = Gauge(
+    "findoc_embedding_drift_score",
+    "Cosine distance between recent (7-day) and corpus-wide mean embeddings",
+)
+
+DRIFT_ALERT = Gauge(
+    "findoc_embedding_drift_alert",
+    "1 if embedding drift exceeds the configured threshold, 0 otherwise",
+)

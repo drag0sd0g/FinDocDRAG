@@ -39,10 +39,19 @@ from src.metrics import FILINGS_FETCHED_TOTAL
 
 # ── Structured logging (TDD: Section 8.3) ───────────────────────
 
+SERVICE_NAME = "ingestion"
+
+
+def _add_service_field(_logger: object, _method_name: str, event_dict: dict) -> dict:
+    event_dict["service"] = SERVICE_NAME
+    return event_dict
+
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
+        _add_service_field,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
     ],

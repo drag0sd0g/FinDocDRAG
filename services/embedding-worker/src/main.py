@@ -68,10 +68,19 @@ _KAFKA_SESSION_TIMEOUT_MS = 60_000       # 60 seconds
 
 # ── Structured logging ───────────────────────────────────────────
 
+SERVICE_NAME = "embedding-worker"
+
+
+def _add_service_field(_logger: object, _method_name: str, event_dict: dict) -> dict:
+    event_dict["service"] = SERVICE_NAME
+    return event_dict
+
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
+        _add_service_field,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
     ],

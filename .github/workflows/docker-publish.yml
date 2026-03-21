@@ -80,19 +80,67 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # ── Update Helm image tags (TDD Section 10.3) ────────────
+  update-helm-values:
+    name: Update Helm image tags
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use a token with write access so the push back to main is allowed.
+          # The default GITHUB_TOKEN works here; GitHub Actions does NOT
+          # re-trigger workflows for commits made with GITHUB_TOKEN, preventing
+          # infinite loops. The helm/ path is also excluded from the push trigger
+          # paths filter above, providing a second safety layer.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(echo '${{ github.sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Install yq
+        run: |
+          wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+
+      - name: Update image tags in values.yaml
+        run: |
+          SHORT_SHA="${{ steps.sha.outputs.short }}"
+          PREFIX="${{ env.IMAGE_PREFIX }}"
+          yq e -i ".ingestion.image            = \"${PREFIX}/ingestion:${SHORT_SHA}\""         helm/findoc-rag/values.yaml
+          yq e -i ".embeddingWorker.image       = \"${PREFIX}/embedding-worker:${SHORT_SHA}\"" helm/findoc-rag/values.yaml
+          yq e -i ".queryApi.image              = \"${PREFIX}/query-api:${SHORT_SHA}\""        helm/findoc-rag/values.yaml
+          yq e -i ".driftDetection.image        = \"${PREFIX}/embedding-worker:${SHORT_SHA}\"" helm/findoc-rag/values.yaml
+
+      - name: Commit and push updated Helm values
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add helm/findoc-rag/values.yaml
+          git diff --staged --quiet || \
+            git commit -m "ci: update Helm image tags to ${{ steps.sha.outputs.short }}"
+          git push
+
   # ── Summary ──────────────────────────────────────────────
   publish-summary:
     name: Publish Summary
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [build-and-push, update-helm-values]
     steps:
       - name: Summary
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "## 🐳 Docker Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker Images Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Service | Image | Tags |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| Ingestion | \`${{ env.IMAGE_PREFIX }}/ingestion\` | \`latest\`, \`${SHORT_SHA}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Embedding Worker | \`${{ env.IMAGE_PREFIX }}/embedding-worker\` | \`latest\`, \`${SHORT_SHA}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Query API | \`${{ env.IMAGE_PREFIX }}/query-api\` | \`latest\`, \`${SHORT_SHA}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Helm \`values.yaml\` updated to tag \`${SHORT_SHA}\`." >> $GITHUB_STEP_SUMMARY
