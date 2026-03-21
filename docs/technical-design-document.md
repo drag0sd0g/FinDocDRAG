@@ -195,6 +195,8 @@ Answer:
 | NFR-3 | The embedding worker SHALL process and store at least 50 chunks per second on a single worker instance.                                                                 |
 | NFR-4 | The ingestion service SHALL fetch and publish at least 10 filings per minute from SEC EDGAR, respecting the SEC's rate limit of 10 requests per second.                 |
 
+> **Note:** NFR-1 through NFR-4 are design targets sized for the intended deployment profile (≥16 GB RAM, CPU-only embedding). No benchmark measurements have been taken yet. Validation against actual measurements is planned for the first full evaluation run (expected April 2026 once evaluation hardware is available). Numbers may be revised once real data is collected.
+
 ### 4.2 Capacity
 
 | ID    | Requirement                                                                                                 |
@@ -321,7 +323,18 @@ The system consists of four independently deployable services connected by Kafka
 1. **Section split**: Parse 10-K structure and split by known items (Item 1, 1A, 1B, 2, 3, 4, 5, 6, 7, 7A, 8, 9, 9A, 9B, 10, 11, 12, 13, 14, 15). The section name is stored as metadata.
 2. **Paragraph split**: Within each section, split by double newlines.
 3. **Token-based windowing**: If a paragraph exceeds 512 tokens, split it into 512-token windows with 64-token overlap. Token counting uses the `tiktoken` library with the `cl100k_base` encoding.
-4. Each resulting chunk is assigned a deterministic `chunk_id`: `SHA256(accession_number + section_name + chunk_sequence_index)`.
+4. Each resulting chunk is assigned a deterministic `chunk_id`: `SHA256(accession_number + section_name + chunk_sequence_index)`. The following fields are stored per chunk in the `document_chunks` table:
+
+| Field              | Type        | Description                                                              |
+| ------------------ | ----------- | ------------------------------------------------------------------------ |
+| `chunk_id`         | `VARCHAR(64)` | Deterministic SHA256 hash of accession + section + index               |
+| `accession_number` | `VARCHAR(30)` | SEC EDGAR accession number (foreign key to `ingestion_log`)            |
+| `ticker`           | `VARCHAR(10)` | Ticker symbol (e.g. `AAPL`)                                            |
+| `filing_date`      | `DATE`        | Date the 10-K was filed                                                |
+| `section_name`     | `VARCHAR(100)`| 10-K item name (e.g. `Item 1A - Risk Factors`, or `Unknown` if unparsed)|
+| `chunk_index`      | `INTEGER`     | Zero-based sequence index within the filing                            |
+| `token_count`      | `INTEGER`     | Number of tokens in this chunk (tiktoken `cl100k_base`)                |
+| `embedding`        | `vector(384)` | Dense embedding vector from `all-MiniLM-L6-v2`                        |
 
 **Embedding:**
 
@@ -510,6 +523,8 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 | `filings.embedded` | accession_number | Chunk ID array   | 6          | 7 days    |
 | `filings.dlq`      | accession_number | Error + original | 3          | 30 days   |
 
+> **Topic creation:** `filings.raw` is auto-created by Kafka on first publish (`KAFKA_AUTO_CREATE_TOPICS_ENABLE=true`, inheriting the cluster default of 6 partitions and 7-day retention). `filings.embedded` and `filings.dlq` are created explicitly by the Docker Compose init script (`kafka-init` service) to ensure correct partition count and retention before any consumer starts.
+
 ### 5.4 Technology Choices and Rationale
 
 | Decision                | Choice                 | Rationale                                                                                                                                                                                                             |
@@ -557,7 +572,7 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 | Query API        | CPU-bound embedding generation    | Embedding model is loaded per replica; HPA scales replicas horizontally.                                          |
 | Query API        | LLM generation latency            | LLM call is async and non-blocking; multiple concurrent queries can be in-flight.                                 |
 | Embedding Worker | CPU-bound batch embedding         | Kafka consumer group allows adding more worker replicas; partitions distribute load.                              |
-| PostgreSQL       | Vector search on large tables     | HNSW index with tuned `ef_search` parameter. At 500K vectors, a single PostgreSQL instance is sufficient.         |
+| PostgreSQL       | Vector search on large tables     | HNSW index with tuned `ef_search` parameter. At 500K vectors, a single PostgreSQL instance is sufficient. Index build uses `CREATE INDEX CONCURRENTLY` so existing queries are not blocked. Build time is estimated at several minutes for 500K vectors on commodity hardware (unvalidated — see [pgvector benchmarks](https://github.com/pgvector/pgvector#benchmarks) for reference figures). |
 | Ollama           | Sequential generation on CPU      | Single-request bottleneck. Mitigation: use GPU if available, or fall back to OpenAI API for concurrent workloads. |
 | Kafka            | Unlikely bottleneck at this scale | 6 partitions per topic supports up to 6 parallel consumers.                                                       |
 
@@ -601,12 +616,15 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 │                                                                     │
 │  Ollama ──X──▶ Query API                                           │
 │               └─▶ Timeout after 30 seconds                          │
+│                   (aiohttp.ClientTimeout configured in              │
+│                    OllamaBackend — applies to Ollama only)          │
 │               └─▶ Return HTTP 200 with degraded: true               │
 │                   (retrieved sources without LLM answer)            │
 │                                                                     │
 │  OpenAI / Claude API ──X──▶ Query API                              │
 │                    └─▶ Retry with exponential backoff               │
 │                        (max_retries=2 → 3 total attempts)           │
+│                        SDK default timeouts apply (~600s)           │
 │                    └─▶ If still failing, return HTTP 200 degraded   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -633,6 +651,29 @@ Messages that fail processing in the embedding worker after 3 retry attempts are
 ```
 
 The DLQ topic has 30-day retention, allowing manual inspection and replay.
+
+**Inspecting DLQ messages:**
+
+```bash
+# Docker Compose (local)
+docker compose exec kafka \
+  kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic filings.dlq \
+  --from-beginning \
+  --max-messages 10
+
+# Kubernetes
+kubectl exec -n findoc-rag deploy/findoc-rag-kafka -- \
+  kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic filings.dlq \
+  --from-beginning
+```
+
+**Replaying a failed filing:** Extract the `original_message` field from the DLQ payload and republish it to `filings.raw`. The embedding worker's idempotent upsert ensures safe reprocessing (Section 7.2).
+
+**Alerting:** The `findoc_embedding_dlq_messages_total` Prometheus counter (visible on the Grafana pipeline dashboard) increments on every DLQ write. Configure an alert if this counter's rate exceeds an acceptable threshold (e.g. `rate(findoc_embedding_dlq_messages_total[5m]) > 0`).
 
 ### 7.4 Graceful Degradation
 
@@ -754,7 +795,7 @@ A scheduled job (Kubernetes CronJob, weekly) computes the mean embedding vector 
 | Data in transit      | All Kubernetes internal communication uses cluster networking. External API access uses HTTPS (via K8s Ingress TLS termination).                                                                                                                                              |
 | API Keys             | Stored as Kubernetes Secrets, mounted as environment variables. Not logged or included in API responses.                                                                                                                                                                      |
 | OpenAI API Key       | Stored as a Kubernetes Secret. Only the Query API pod has access. Not logged.                                                                                                                                                                                                 |
-| LLM Prompt Injection | The system prompt is hardcoded (not user-modifiable). User input is placed only in the `Question:` field of the prompt template. Retrieved context is clearly delineated. This is a defense-in-depth measure, not a guarantee — prompt injection is an open research problem. |
+| LLM Prompt Injection | The system prompt is hardcoded (not user-modifiable). The prompt has three structurally labelled sections: `Context:` (numbered `[Source N]` blocks from retrieval), `Question:` (verbatim user input, placed last), and `Answer:` (LLM completes from here). Delineation is positional and structural — there is no escaping of user input or retrieved text. Adversarial content in either the question or a retrieved chunk could still influence the model's output. This is a defense-in-depth measure, not a guarantee — prompt injection remains an open research problem. |
 
 ### 9.3 Rate Limiting
 

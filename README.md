@@ -7,7 +7,7 @@ A Retrieval-Augmented Generation platform for financial document intelligence. F
 The system is composed of three independently deployable services connected by Apache Kafka and a shared PostgreSQL database with the pgvector extension:
 
 - **Ingestion Service** -- Fetches 10-K filings from the SEC EDGAR full-text search API and publishes raw filing text to Kafka.
-- **Embedding Worker** -- Consumes raw filings from Kafka, splits them into section-aware chunks, generates dense vector embeddings, and stores the results in pgvector.
+- **Embedding Worker** -- Consumes raw filings from Kafka, splits them into section-aware chunks, generates dense vector embeddings, and stores the results in pgvector. Chunking is hierarchical: 10-K items are split by section (Item 1A, Item 7, etc.), then by paragraph, then into 512-token windows with 64-token overlap. Each chunk retains the section name, ticker, filing date, and a deterministic SHA256 chunk ID.
 - **Query API** -- Accepts natural language questions, retrieves the most relevant document chunks via cosine similarity, constructs a grounded prompt, and returns an LLM-generated answer with source citations.
 
 ```
@@ -54,7 +54,9 @@ make run-remote
 # or: docker compose up --build
 ```
 
-On the first run this will pull container images, build the three services, and run database migrations. If using Ollama (`make run`), the LLM model is downloaded automatically on first start (~4 GB). Subsequent starts reuse cached layers and volumes.
+On the first run this will pull container images, build the three services, and run database migrations. The schema is applied automatically from `db/migrations/001_initial_schema.sql` (creates the `pgvector` extension, `ingestion_log` and `document_chunks` tables, and the HNSW vector index). To run migrations manually at any time: `make migrate`.
+
+If using Ollama (`make run`), the `mistral:7b` model (~4 GB) is downloaded automatically on first start. Subsequent starts reuse cached layers and volumes.
 
 4. Verify the services are running:
 
@@ -91,7 +93,34 @@ curl -X POST http://localhost:8000/v1/query \
   }'
 ```
 
-The response includes the generated answer, source citations with relevance scores, and a latency breakdown.
+The response shape:
+
+```json
+{
+  "answer": "Apple's 2024 10-K identifies supply chain concentration as a key risk...",
+  "sources": [
+    {
+      "chunk_id": "a1b2c3d4e5f6...",
+      "ticker": "AAPL",
+      "filing_date": "2024-11-01",
+      "section": "Item 1A - Risk Factors",
+      "relevance_score": 0.87,
+      "text_preview": "The Company's operations and performance depend significantly on..."
+    }
+  ],
+  "model": "mistral:7b",
+  "timing": {
+    "embedding_ms": 12.4,
+    "retrieval_ms": 38.1,
+    "generation_ms": 4821.0,
+    "total_ms": 4871.5
+  },
+  "degraded": false,
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+When the LLM is unavailable, `answer` is `null` and `degraded` is `true` (HTTP 200 — see [Graceful Degradation](#graceful-degradation)).
 
 ### List ingested documents
 
@@ -104,10 +133,19 @@ Supports optional query parameters `ticker`, `limit`, and `offset`.
 
 ### Interactive API documentation
 
-Once the Query API is running, auto-generated OpenAPI (Swagger) documentation is available at:
+FastAPI generates OpenAPI 3.0 documentation automatically. All three services expose it while running:
 
-```
-http://localhost:8000/docs
+| Service           | Swagger UI                           | ReDoc                                 | JSON spec                                  |
+| ----------------- | ------------------------------------ | ------------------------------------- | ------------------------------------------ |
+| Query API         | http://localhost:8000/docs           | http://localhost:8000/redoc           | http://localhost:8000/openapi.json         |
+| Ingestion Service | http://localhost:8001/docs           | http://localhost:8001/redoc           | http://localhost:8001/openapi.json         |
+| Embedding Worker  | http://localhost:8002/docs           | http://localhost:8002/redoc           | http://localhost:8002/openapi.json         |
+
+To export a static spec without running the stack:
+
+```bash
+cd services/query-api
+PYTHONPATH=. python -c "import json; from src.main import app; print(json.dumps(app.openapi(), indent=2))"
 ```
 
 ## Project Structure
@@ -290,16 +328,39 @@ make helm-teardown
 
 All configuration is driven by environment variables. See `.env.example` for the full list with descriptions. Key variables:
 
-| Variable            | Default                                  | Description                                   |
-| ------------------- | ---------------------------------------- | --------------------------------------------- |
-| `LLM_BACKEND`       | `ollama`                                 | LLM provider: `ollama`, `openai`, or `claude` |
-| `OLLAMA_MODEL`      | `mistral:7b`                             | Model to use when backend is Ollama           |
-| `OPENAI_API_KEY`    | (empty)                                  | Required when `LLM_BACKEND=openai`            |
-| `ANTHROPIC_API_KEY` | (empty)                                  | Required when `LLM_BACKEND=claude`            |
-| `CLAUDE_MODEL`      | `claude-opus-4-6`                        | Claude model to use when backend is claude    |
-| `API_KEYS`          | `dev-key-1,dev-key-2`                    | Comma-separated valid API keys                |
-| `EDGAR_USER_AGENT`  | `FinDocRAG findocrag@example.com`        | SEC-required identification string            |
-| `EMBEDDING_MODEL`   | `sentence-transformers/all-MiniLM-L6-v2` | Sentence-transformers model name              |
+**LLM & model selection**
+
+| Variable            | Default                                  | Description                                          |
+| ------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| `LLM_BACKEND`       | `ollama`                                 | LLM provider: `ollama`, `openai`, or `claude`        |
+| `OLLAMA_URL`        | `http://ollama:11434`                    | Ollama server URL (used when `LLM_BACKEND=ollama`)   |
+| `OLLAMA_MODEL`      | `mistral:7b`                             | Ollama model name                                    |
+| `OPENAI_API_KEY`    | (empty)                                  | Required when `LLM_BACKEND=openai`                   |
+| `OPENAI_MODEL`      | `gpt-4o-mini`                            | OpenAI model name                                    |
+| `ANTHROPIC_API_KEY` | (empty)                                  | Required when `LLM_BACKEND=claude`                   |
+| `CLAUDE_MODEL`      | `claude-opus-4-6`                        | Claude model name                                    |
+| `EMBEDDING_MODEL`   | `sentence-transformers/all-MiniLM-L6-v2` | Sentence-transformers model for embedding            |
+
+**Security & API**
+
+| Variable   | Default               | Description                                                       |
+| ---------- | --------------------- | ----------------------------------------------------------------- |
+| `API_KEYS` | `dev-key-1,dev-key-2` | Comma-separated valid API keys for the Query API                  |
+| `RATE_LIMIT` | `30/minute`         | Query API rate limit per API key (slowapi format, e.g. `60/minute`) |
+
+**Ingestion**
+
+| Variable            | Default                           | Description                                      |
+| ------------------- | --------------------------------- | ------------------------------------------------ |
+| `EDGAR_USER_AGENT`  | `FinDocRAG findocrag@example.com` | SEC-required identification string               |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092`              | Kafka broker address used by the embedding worker |
+
+**Observability**
+
+| Variable        | Default | Description                                         |
+| --------------- | ------- | --------------------------------------------------- |
+| `LOG_LEVEL`     | `INFO`  | Log verbosity for all services (`DEBUG`, `INFO`, `WARNING`) |
+| `QUERY_API_PORT` | `8000` | HTTP port for the Query API                         |
 
 ## LLM Backends
 
@@ -319,7 +380,20 @@ Rate limiting is enforced at 30 requests per minute per API key.
 
 ## Graceful Degradation
 
-If the LLM backend is unavailable, the Query API returns the retrieved source chunks with relevance scores but without a generated answer. The response includes `"degraded": true` to signal this state. This allows downstream consumers to still present relevant context to users.
+If the LLM backend is unavailable (timeout, network error, or API failure), the Query API still returns **HTTP 200** with the retrieved source chunks and relevance scores, but `answer` is `null` and `degraded` is `true`:
+
+```json
+{
+  "answer": null,
+  "sources": [ ... ],
+  "model": "mistral:7b",
+  "timing": { ... },
+  "degraded": true,
+  "request_id": "..."
+}
+```
+
+This allows downstream consumers to present relevant context to users even when generation is unavailable. The `degraded` field is the canonical signal — do not rely on `answer` being absent, as future versions may return a partial answer with `degraded: true`.
 
 ## Documentation
 
