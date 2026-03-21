@@ -46,7 +46,7 @@ class TestRetriever:
         # Mock the connection and cursor
         mock_cur = MagicMock()
         mock_cur.fetchall.return_value = [
-            ("chunk1", "AAPL", "2024-11-01", "Item 1A", "Risk text...", 0.87),
+            ("chunk1", "AAPL", "2024-11-01", "Item 1A", "Risk text...", np.array([0.1] * 384), 0.87),
         ]
         mock_conn = MagicMock()
         mock_conn.cursor.return_value = mock_cur
@@ -164,6 +164,84 @@ class TestEmbeddingModelConsistency:
         with patch("src.rag.retriever.logger") as mock_logger:
             retriever.verify_embedding_model_consistency()
             mock_logger.error.assert_not_called()
+
+
+class TestMMR:
+    """Tests for _apply_mmr."""
+
+    def _make(self, relevance: float, vec: list[float]) -> tuple:
+        from src.rag.prompts import RetrievedChunk
+        chunk = RetrievedChunk(
+            chunk_id="x",
+            ticker="AAPL",
+            filing_date="2024-01-01",
+            section="Item 1A",
+            relevance_score=relevance,
+            text="text",
+        )
+        return (chunk, np.array(vec, dtype=float))
+
+    def test_empty_candidates_returns_empty(self) -> None:
+        from src.rag.retriever import _apply_mmr
+        assert _apply_mmr([], top_k=5) == []
+
+    def test_fewer_candidates_than_top_k(self) -> None:
+        from src.rag.retriever import _apply_mmr
+        candidates = [self._make(0.9, [1.0, 0.0]), self._make(0.8, [0.0, 1.0])]
+        result = _apply_mmr(candidates, top_k=5)
+        assert len(result) == 2
+
+    def test_first_selected_is_highest_relevance(self) -> None:
+        from src.rag.retriever import _apply_mmr
+        # Orthogonal vectors → diversity plays no role for first pick
+        candidates = [
+            self._make(0.7, [1.0, 0.0, 0.0]),
+            self._make(0.9, [0.0, 1.0, 0.0]),
+            self._make(0.5, [0.0, 0.0, 1.0]),
+        ]
+        result = _apply_mmr(candidates, top_k=1)
+        assert result[0].relevance_score == 0.9
+
+    def test_prefers_diverse_chunk_over_redundant_one(self) -> None:
+        """With lambda=0.5 and top_k=2, MMR should pick the diverse chunk
+        over the near-duplicate even when the duplicate has higher relevance.
+
+        Setup (unit vectors, so dot == cosine):
+          A: relevance=0.90, vec=[1, 0, 0]  ← selected first
+          B: relevance=0.85, vec=[1, 0, 0]  ← near-duplicate of A (sim≈1.0)
+          C: relevance=0.70, vec=[0, 1, 0]  ← diverse (sim=0.0 with A)
+
+        Round 2 MMR scores:
+          B: 0.5*0.85 - 0.5*1.0 = -0.075
+          C: 0.5*0.70 - 0.5*0.0 = +0.350  ← wins
+        """
+        from src.rag.retriever import _apply_mmr
+        candidates = [
+            self._make(0.90, [1.0, 0.0, 0.0]),  # A
+            self._make(0.85, [1.0, 0.0, 0.0]),  # B — near-duplicate
+            self._make(0.70, [0.0, 1.0, 0.0]),  # C — diverse
+        ]
+        result = _apply_mmr(candidates, top_k=2)
+        assert result[0].relevance_score == 0.90  # A always first
+        assert result[1].relevance_score == 0.70  # C beats B
+
+    def test_lambda_1_gives_pure_relevance_order(self) -> None:
+        """lambda=1.0 disables diversity — identical to sorting by relevance."""
+        from src.rag.retriever import _apply_mmr
+        candidates = [
+            self._make(0.90, [1.0, 0.0, 0.0]),
+            self._make(0.85, [1.0, 0.0, 0.0]),  # near-duplicate but higher relevance
+            self._make(0.70, [0.0, 1.0, 0.0]),
+        ]
+        result = _apply_mmr(candidates, top_k=2, lambda_mmr=1.0)
+        scores = [c.relevance_score for c in result]
+        assert scores == [0.90, 0.85]
+
+    def test_returns_exactly_top_k_when_enough_candidates(self) -> None:
+        from src.rag.retriever import _apply_mmr
+        candidates = [self._make(1.0 - i * 0.1, [float(i == j) for j in range(6)]) for i in range(6)]
+        result = _apply_mmr(candidates, top_k=4)
+        assert len(result) == 4
 
 
 class TestRetrievedChunk:

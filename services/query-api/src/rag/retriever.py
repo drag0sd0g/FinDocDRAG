@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import numpy as np
 import psycopg2
 import structlog
 from pgvector.psycopg2 import register_vector
@@ -22,6 +23,63 @@ from src.rag.prompts import RetrievedChunk
 logger = structlog.get_logger()
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# How many candidates to fetch from pgvector before MMR reranking.
+# 4× top_k gives the algorithm enough diversity headroom without a
+# meaningful latency cost (HNSW lookup is O(log n) regardless of LIMIT).
+_CANDIDATE_MULTIPLIER = 4
+_MAX_CANDIDATES = 100
+
+
+def _apply_mmr(
+    candidates: list[tuple[RetrievedChunk, np.ndarray]],
+    top_k: int,
+    lambda_mmr: float = 0.5,
+) -> list[RetrievedChunk]:
+    """Select top_k chunks using Maximal Marginal Relevance.
+
+    Iteratively picks the chunk that best balances relevance to the query
+    against redundancy with chunks already selected:
+
+        score = λ × relevance_score − (1−λ) × max_cos_sim(chunk, selected)
+
+    lambda_mmr=1.0 → pure relevance order (identical to no reranking).
+    lambda_mmr=0.0 → pure diversity (ignores relevance entirely).
+    lambda_mmr=0.5 → equal weight, the recommended default.
+
+    Embeddings must be L2-normalised so that dot product == cosine similarity.
+
+    Reference: Carbonell & Goldstein (1998), "The Use of MMR, Diversity-Based
+    Reranking for Reordering Documents and Producing Summaries", SIGIR.
+    """
+    if not candidates:
+        return []
+
+    selected: list[RetrievedChunk] = []
+    selected_vecs: list[np.ndarray] = []
+    remaining = list(candidates)
+
+    while remaining and len(selected) < top_k:
+        best_idx = 0
+        best_score = float("-inf")
+
+        for i, (chunk, emb) in enumerate(remaining):
+            if not selected_vecs:
+                # First pick is always the highest-relevance chunk.
+                mmr_score = chunk.relevance_score
+            else:
+                max_sim = max(float(np.dot(emb, sel)) for sel in selected_vecs)
+                mmr_score = lambda_mmr * chunk.relevance_score - (1 - lambda_mmr) * max_sim
+
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = i
+
+        chunk, emb = remaining.pop(best_idx)
+        selected.append(chunk)
+        selected_vecs.append(emb)
+
+    return selected
 
 
 class Retriever:
@@ -114,31 +172,34 @@ class Retriever:
         query_embedding = self.embed_query(question)
         embedding_ms = (time.perf_counter() - t0) * 1000
 
-        # Step 2: Query pgvector
+        # Step 2: Query pgvector — fetch more candidates than requested so
+        # MMR has enough material to trade off relevance against diversity.
+        candidate_k = min(top_k * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES)
+
         conn = self._get_conn()
         cur = conn.cursor()
 
         if ticker_filter:
             sql = """
                 SELECT chunk_id, ticker, filing_date, section_name,
-                       chunk_text,
+                       chunk_text, embedding,
                        1 - (embedding <=> %s::vector) AS relevance_score
                 FROM document_chunks
                 WHERE ticker = %s
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
             """
-            params: tuple[Any, ...] = (query_embedding, ticker_filter, query_embedding, top_k)
+            params: tuple[Any, ...] = (query_embedding, ticker_filter, query_embedding, candidate_k)
         else:
             sql = """
                 SELECT chunk_id, ticker, filing_date, section_name,
-                       chunk_text,
+                       chunk_text, embedding,
                        1 - (embedding <=> %s::vector) AS relevance_score
                 FROM document_chunks
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
             """
-            params = (query_embedding, query_embedding, top_k)
+            params = (query_embedding, query_embedding, candidate_k)
 
         try:
             cur.execute(sql, params)
@@ -146,22 +207,28 @@ class Retriever:
         finally:
             cur.close()
 
-        chunks: list[RetrievedChunk] = []
+        # Build (chunk, embedding_vector) pairs for MMR.
+        # row[5] is the pgvector embedding (numpy array after register_vector).
+        # row[6] is the relevance score.
+        candidates: list[tuple[RetrievedChunk, np.ndarray]] = []
         for row in rows:
-            chunks.append(
-                RetrievedChunk(
-                    chunk_id=row[0],
-                    ticker=row[1],
-                    filing_date=str(row[2]),
-                    section=row[3],
-                    relevance_score=float(row[5]),
-                    text=row[4],
-                )
+            chunk = RetrievedChunk(
+                chunk_id=row[0],
+                ticker=row[1],
+                filing_date=str(row[2]),
+                section=row[3],
+                relevance_score=float(row[6]),
+                text=row[4],
             )
+            candidates.append((chunk, np.asarray(row[5])))
+
+        # Step 3: Apply MMR to select top_k diverse chunks.
+        chunks = _apply_mmr(candidates, top_k)
 
         logger.info(
             "retrieval_complete",
             top_k=top_k,
+            candidates_fetched=len(candidates),
             results=len(chunks),
             ticker_filter=ticker_filter,
             embedding_ms=round(embedding_ms, 1),
