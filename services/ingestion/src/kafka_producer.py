@@ -54,6 +54,11 @@ class FilingProducer:
      company_name, raw_text, source_url, published_at}
     """
 
+    # Skip filings whose raw JSON exceeds this before compression.
+    # At ~10:1 text compression ratio this keeps compressed messages well
+    # under the broker's 20 MB limit.
+    MAX_RAW_BYTES = 150 * 1024 * 1024  # 150 MB
+
     def __init__(self, bootstrap_servers: str | None = None) -> None:
         servers = bootstrap_servers or settings.kafka_bootstrap_servers
         self._producer = Producer(
@@ -61,12 +66,17 @@ class FilingProducer:
                 "bootstrap.servers": servers,
                 "client.id": "ingestion-service",
                 "acks": "all",
+                "compression.type": "gzip",
                 "message.max.bytes": 20971520,
             }
         )
 
-    def publish_filing(self, filing: Filing) -> None:
-        """Serialize a Filing and publish it to Kafka (FR-3)."""
+    def publish_filing(self, filing: Filing) -> bool:
+        """Serialize a Filing and publish it to Kafka (FR-3).
+
+        Returns True if the message was produced, False if it was skipped
+        because the raw payload exceeded MAX_RAW_BYTES.
+        """
         message = {
             "accession_number": filing.accession_number,
             "ticker": filing.ticker,
@@ -78,13 +88,28 @@ class FilingProducer:
             "published_at": datetime.now(UTC).isoformat(),
         }
 
+        payload = json.dumps(message)
+        raw_bytes = len(payload.encode())
+
+        if raw_bytes > self.MAX_RAW_BYTES:
+            KAFKA_PUBLISH_TOTAL.labels(topic=TOPIC_FILINGS_RAW, status="skipped_too_large").inc()
+            logger.warning(
+                "filing_skipped_too_large",
+                ticker=filing.ticker,
+                accession=filing.accession_number,
+                raw_mb=round(raw_bytes / 1024 / 1024, 1),
+                limit_mb=round(self.MAX_RAW_BYTES / 1024 / 1024, 1),
+            )
+            return False
+
         self._producer.produce(
             topic=TOPIC_FILINGS_RAW,
             key=filing.accession_number,
-            value=json.dumps(message),
+            value=payload,
             callback=_delivery_callback,
         )
         self._producer.poll(0)  # Trigger any pending delivery callbacks
+        return True
 
     def flush(self, timeout: float = 10.0) -> int:
         """Wait for all in-flight messages to be delivered.

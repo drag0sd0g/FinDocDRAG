@@ -15,7 +15,9 @@ References:
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
+from logging import LogRecord
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -48,6 +50,17 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
+
+
+# ── Suppress noisy health/metrics access log lines ───────────────
+
+class _SuppressHealthMetrics(logging.Filter):
+    def filter(self, record: LogRecord) -> bool:
+        msg = record.getMessage()
+        return "/health" not in msg and "/metrics" not in msg
+
+
+logging.getLogger("uvicorn.access").addFilter(_SuppressHealthMetrics())
 
 
 # ── Request / Response models ────────────────────────────────────
@@ -156,11 +169,16 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
     errors: list[str] = []
     tickers_processed: list[str] = []
 
+    t_request = time.perf_counter()
+
     async with aiohttp.ClientSession() as session:
         for entry in ticker_list:
             symbol = entry["symbol"]
             name = entry.get("name", symbol)
             tickers_processed.append(symbol)
+            t_ticker = time.perf_counter()
+
+            logger.info("ingest_ticker_started", ticker=symbol)
 
             try:
                 filings = await _edgar_client.get_filings_for_ticker(
@@ -181,10 +199,35 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
                         )
                         continue
 
-                    _kafka_producer.publish_filing(filing)
+                    logger.info(
+                        "filing_publishing",
+                        ticker=symbol,
+                        accession=filing.accession_number,
+                        filing_date=filing.filing_date,
+                    )
+                    t_publish = time.perf_counter()
+                    published = _kafka_producer.publish_filing(filing)
+                    if not published:
+                        filings_skipped += 1
+                        FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="skipped").inc()
+                        continue
                     _db.record_ingestion(filing)
+                    logger.info(
+                        "filing_published",
+                        ticker=symbol,
+                        accession=filing.accession_number,
+                        elapsed_ms=round((time.perf_counter() - t_publish) * 1000, 1),
+                    )
                     filings_published += 1
                     FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="success").inc()
+
+                logger.info(
+                    "ingest_ticker_complete",
+                    ticker=symbol,
+                    filings_published=filings_published,
+                    filings_skipped=filings_skipped,
+                    elapsed_ms=round((time.perf_counter() - t_ticker) * 1000, 1),
+                )
 
             except Exception as exc:
                 error_msg = f"Error processing {symbol}: {exc}"
@@ -194,9 +237,19 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
                     "ingest_ticker_error",
                     ticker=symbol,
                     error=str(exc),
+                    elapsed_ms=round((time.perf_counter() - t_ticker) * 1000, 1),
                 )
 
     _kafka_producer.flush()
+
+    logger.info(
+        "ingest_request_complete",
+        tickers=tickers_processed,
+        filings_published=filings_published,
+        filings_skipped=filings_skipped,
+        errors=len(errors),
+        elapsed_ms=round((time.perf_counter() - t_request) * 1000, 1),
+    )
 
     return IngestResponse(
         status="completed",

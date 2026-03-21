@@ -19,6 +19,7 @@ import logging
 import os
 import threading
 import time
+from logging import LogRecord
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -75,6 +76,20 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
+
+# ── Suppress noisy health/metrics access log lines ───────────────
+
+class _SuppressHealthMetrics(logging.Filter):
+    """Drop uvicorn access-log records for /health and /metrics."""
+
+    def filter(self, record: LogRecord) -> bool:
+        msg = record.getMessage()
+        return "/health" not in msg and "/metrics" not in msg
+
+
+logging.getLogger("uvicorn.access").addFilter(_SuppressHealthMetrics())
+
+
 # ── Shared state ─────────────────────────────────────────────────
 
 _embedder: Embedder | None = None
@@ -95,6 +110,10 @@ def _consume_loop() -> None:
             "group.id": "embedding-worker",
             "auto.offset.reset": "earliest",
             "enable.auto.commit": False,
+            # Chunking + embedding a large 10-K on CPU can take several minutes.
+            # Default 300 s is too short; 1800 s (30 min) gives ample headroom.
+            "max.poll.interval.ms": 1800000,
+            "session.timeout.ms": 60000,
         }
     )
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})

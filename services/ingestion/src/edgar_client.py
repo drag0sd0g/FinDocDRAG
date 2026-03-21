@@ -97,6 +97,7 @@ class EdgarClient:
                     "edgar_search_complete",
                     ticker=ticker,
                     results_count=len(hits),
+                    elapsed_ms=round(elapsed * 1000, 1),
                 )
                 return hits
 
@@ -143,11 +144,46 @@ class EdgarClient:
 
         for attempt in range(1, self.max_retries + 1):
             try:
+                t0 = time.perf_counter()
+                chunks: list[bytes] = []
+                bytes_received = 0
+                last_log_bytes = 0
+                log_every = 5 * 1024 * 1024  # log a progress line every 5 MB
+
                 async with self._semaphore, session.get(filing_url, headers=headers) as resp:
                     resp.raise_for_status()
-                    text: str = await resp.text()
+                    content_length = resp.content_length  # may be None
+                    logger.info(
+                        "edgar_fetch_started_http",
+                        url=filing_url,
+                        content_length_bytes=content_length,
+                        content_length_mb=round(content_length / 1024 / 1024, 1) if content_length else None,
+                    )
+                    async for chunk in resp.content.iter_chunked(1024 * 64):  # 64 KB chunks
+                        chunks.append(chunk)
+                        bytes_received += len(chunk)
+                        if bytes_received - last_log_bytes >= log_every:
+                            logger.info(
+                                "edgar_fetch_progress",
+                                url=filing_url,
+                                received_mb=round(bytes_received / 1024 / 1024, 1),
+                                total_mb=round(content_length / 1024 / 1024, 1) if content_length else None,
+                                elapsed_ms=round((time.perf_counter() - t0) * 1000, 1),
+                            )
+                            last_log_bytes = bytes_received
                     await asyncio.sleep(1.0 / self.rate_limit_rps)
-                    return text
+
+                raw_bytes = b"".join(chunks)
+                elapsed = time.perf_counter() - t0
+                text = raw_bytes.decode("utf-8", errors="replace")
+                logger.info(
+                    "edgar_fetch_complete",
+                    url=filing_url,
+                    elapsed_ms=round(elapsed * 1000, 1),
+                    size_mb=round(len(raw_bytes) / 1024 / 1024, 1),
+                    throughput_mbps=round(len(raw_bytes) / 1024 / 1024 / elapsed, 2) if elapsed > 0 else None,
+                )
+                return text
 
             except aiohttp.ClientError as exc:
                 if attempt == self.max_retries:
@@ -191,6 +227,7 @@ class EdgarClient:
           - FR-1: Fetch 10-K filings from SEC EDGAR by ticker.
           - FR-5: Log and skip filings that fail; continue with rest.
         """
+        t_ticker = time.perf_counter()
         hits = await self.search_10k_filings(ticker, session)
         filings: list[Filing] = []
 
@@ -220,6 +257,13 @@ class EdgarClient:
                 f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession_no_dashes}/{accession}.txt"
             )
 
+            logger.info(
+                "edgar_fetch_started",
+                ticker=ticker,
+                accession=accession,
+                filing_date=filing_date,
+                url=source_url,
+            )
             raw_text = await self.fetch_filing_text(source_url, session)
             if raw_text is None:
                 logger.warning(
@@ -246,5 +290,6 @@ class EdgarClient:
             "edgar_ticker_complete",
             ticker=ticker,
             filings_found=len(filings),
+            elapsed_ms=round((time.perf_counter() - t_ticker) * 1000, 1),
         )
         return filings

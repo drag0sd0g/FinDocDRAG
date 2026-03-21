@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from logging import LogRecord
 from typing import TYPE_CHECKING
 
 import structlog
@@ -76,6 +77,18 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
+
+
+# ── Suppress noisy health/metrics access log lines ───────────────
+
+class _SuppressHealthMetrics(logging.Filter):
+    def filter(self, record: LogRecord) -> bool:
+        msg = record.getMessage()
+        return "/health" not in msg and "/metrics" not in msg
+
+
+logging.getLogger("uvicorn.access").addFilter(_SuppressHealthMetrics())
+
 
 # ── Rate limiting (TDD Section 9.3) ─────────────────────────────
 
