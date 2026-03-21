@@ -3,7 +3,7 @@
 # See: docs/technical-design-document.md Section 10.5
 # ============================================================
 
-.PHONY: setup test lint run eval docker-build helm-deploy helm-teardown migrate stop clean
+.PHONY: setup test lint run eval docker-build helm-deploy helm-teardown helm-test migrate stop clean
 
 # ── Local Development ────────────────────────────────────────
 
@@ -69,3 +69,7 @@ helm-deploy:  ## Deploy to Kubernetes via Helm
 
 helm-teardown:  ## Remove Helm release
 	helm uninstall findoc-rag
+
+helm-test:  ## Run Helm unit tests (requires helm-unittest plugin)
+	@echo "==> Running Helm unit tests..."
+	helm unittest helm/findoc-rag/

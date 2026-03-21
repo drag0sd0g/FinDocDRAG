@@ -1,0 +1,199 @@
+suite: ConfigMap templates
+templates:
+  - configmaps.yaml
+
+tests:
+  # configmaps.yaml produces 3 documents by default (prometheus.enabled=true):
+  #   documentIndex 0: RELEASE-NAME-app-config
+  #   documentIndex 1: RELEASE-NAME-db-migrations
+  #   documentIndex 2: RELEASE-NAME-prometheus-config
+
+  - it: renders three configmaps when prometheus is enabled (default)
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: renders two configmaps when prometheus is disabled
+    set:
+      prometheus.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  # ── app-config configmap (documentIndex 0) ─────────────────────────
+
+  - it: app-config configmap has correct kind
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ConfigMap
+
+  - it: app-config configmap name includes release name
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-app-config
+
+  - it: app-config configmap is in configured namespace
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: findoc-rag
+
+  - it: app-config configmap has POSTGRES_HOST pointing to release postgresql
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data.POSTGRES_HOST
+          value: RELEASE-NAME-postgresql
+
+  - it: app-config configmap has POSTGRES_PORT set to 5432
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data.POSTGRES_PORT
+          value: "5432"
+
+  - it: app-config configmap has KAFKA_BOOTSTRAP_SERVERS pointing to release kafka
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data.KAFKA_BOOTSTRAP_SERVERS
+          value: RELEASE-NAME-kafka:9092
+
+  - it: app-config configmap has OLLAMA_URL pointing to release ollama
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data.OLLAMA_URL
+          value: http://RELEASE-NAME-ollama:11434
+
+  - it: app-config configmap has EMBEDDING_MODEL set from values
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data.EMBEDDING_MODEL
+          value: sentence-transformers/all-MiniLM-L6-v2
+
+  - it: app-config configmap has LLM_BACKEND set from values
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data.LLM_BACKEND
+          value: ollama
+
+  - it: app-config configmap LLM_BACKEND reflects custom value
+    documentIndex: 0
+    set:
+      queryApi.llmBackend: claude
+    asserts:
+      - equal:
+          path: data.LLM_BACKEND
+          value: claude
+
+  - it: app-config configmap has OLLAMA_MODEL set from values
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: data.OLLAMA_MODEL
+          value: mistral:7b
+
+  # ── db-migrations configmap (documentIndex 1) ─────────────────────
+
+  - it: db-migrations configmap has correct kind
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ConfigMap
+
+  - it: db-migrations configmap name includes release name
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-db-migrations
+
+  - it: db-migrations configmap contains the SQL migration file
+    documentIndex: 1
+    asserts:
+      - isNotEmpty:
+          path: data["001_initial_schema.sql"]
+
+  - it: db-migrations SQL enables pgvector extension
+    documentIndex: 1
+    asserts:
+      - matchRegex:
+          path: data["001_initial_schema.sql"]
+          pattern: "CREATE EXTENSION IF NOT EXISTS vector"
+
+  - it: db-migrations SQL creates ingestion_log table
+    documentIndex: 1
+    asserts:
+      - matchRegex:
+          path: data["001_initial_schema.sql"]
+          pattern: "CREATE TABLE IF NOT EXISTS ingestion_log"
+
+  - it: db-migrations SQL creates document_chunks table with vector(384)
+    documentIndex: 1
+    asserts:
+      - matchRegex:
+          path: data["001_initial_schema.sql"]
+          pattern: "vector\\(384\\)"
+
+  - it: db-migrations SQL creates HNSW index with m=16
+    documentIndex: 1
+    asserts:
+      - matchRegex:
+          path: data["001_initial_schema.sql"]
+          pattern: "m = 16"
+
+  # ── prometheus-config configmap (documentIndex 2) ─────────────────
+
+  - it: prometheus-config configmap has correct kind
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: ConfigMap
+
+  - it: prometheus-config configmap name includes release name
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-prometheus-config
+
+  - it: prometheus-config contains prometheus.yml data
+    documentIndex: 2
+    asserts:
+      - isNotEmpty:
+          path: data["prometheus.yml"]
+
+  - it: prometheus-config scrape_interval matches values
+    documentIndex: 2
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yml"]
+          pattern: "scrape_interval: 15s"
+
+  - it: prometheus-config includes ingestion scrape target
+    documentIndex: 2
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yml"]
+          pattern: "RELEASE-NAME-ingestion:8001"
+
+  - it: prometheus-config includes embedding-worker scrape target
+    documentIndex: 2
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yml"]
+          pattern: "RELEASE-NAME-embedding-worker:8002"
+
+  - it: prometheus-config includes query-api scrape target
+    documentIndex: 2
+    asserts:
+      - matchRegex:
+          path: data["prometheus.yml"]
+          pattern: "RELEASE-NAME-query-api:8000"

@@ -142,8 +142,14 @@ jobs:
         with:
           version: v3.14.0
 
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git
+
       - name: Lint Helm chart
         run: helm lint helm/findoc-rag/
 
       - name: Template Helm chart (dry-run)
         run: helm template findoc-rag helm/findoc-rag/ > /dev/null
+
+      - name: Run Helm unit tests
+        run: helm unittest helm/findoc-rag/

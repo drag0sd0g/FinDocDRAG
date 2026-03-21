@@ -1,0 +1,200 @@
+suite: StatefulSet templates
+templates:
+  - postgresql-statefulset.yaml
+  - kafka-statefulset.yaml
+
+tests:
+  # ── postgresql-statefulset.yaml ────────────────────────────────────
+
+  - it: postgresql statefulset has correct kind and API version
+    template: postgresql-statefulset.yaml
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - isAPIVersion:
+          of: apps/v1
+
+  - it: postgresql statefulset name includes release name
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-postgresql
+
+  - it: postgresql statefulset is in configured namespace
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: findoc-rag
+
+  - it: postgresql statefulset serviceName matches
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.serviceName
+          value: RELEASE-NAME-postgresql
+
+  - it: postgresql statefulset has 1 replica
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: postgresql statefulset uses pgvector image
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: pgvector/pgvector:pg16
+
+  - it: postgresql statefulset exposes port 5432
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 5432
+
+  - it: postgresql statefulset mounts postgresql secret via envFrom
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].secretRef.name
+          value: RELEASE-NAME-postgresql
+
+  - it: postgresql statefulset has readiness probe using pg_isready
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command[0]
+          value: pg_isready
+
+  - it: postgresql statefulset PVC requests 10Gi storage
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 10Gi
+
+  - it: postgresql statefulset PVC has ReadWriteOnce access mode
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.accessModes[0]
+          value: ReadWriteOnce
+
+  - it: postgresql statefulset mounts initdb configmap
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: RELEASE-NAME-db-migrations
+
+  - it: postgresql statefulset resource limits are set
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 4Gi
+
+  - it: postgresql statefulset custom storage size
+    template: postgresql-statefulset.yaml
+    set:
+      postgresql.storage.size: 50Gi
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 50Gi
+
+  # ── kafka-statefulset.yaml ─────────────────────────────────────────
+
+  - it: kafka statefulset has correct kind
+    template: kafka-statefulset.yaml
+    asserts:
+      - isKind:
+          of: StatefulSet
+
+  - it: kafka statefulset name includes release name
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kafka
+
+  - it: kafka statefulset is in configured namespace
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: findoc-rag
+
+  - it: kafka statefulset serviceName matches
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.serviceName
+          value: RELEASE-NAME-kafka
+
+  - it: kafka statefulset has 1 replica
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: kafka statefulset uses apache/kafka image
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: apache/kafka:latest
+
+  - it: kafka statefulset exposes port 9092
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 9092
+
+  - it: kafka statefulset exposes controller port 9093
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 9093
+
+  - it: kafka statefulset advertised listener includes release name
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[5].value
+          value: PLAINTEXT://RELEASE-NAME-kafka:9092
+
+  - it: kafka statefulset cluster ID is set
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[14].value
+          value: findoc-rag-kafka-cluster-01
+
+  - it: kafka statefulset PVC requests 10Gi storage
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 10Gi
+
+  - it: kafka statefulset KRaft process roles include broker and controller
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].value
+          value: broker,controller
+
+  - it: kafka statefulset num partitions matches values
+    template: kafka-statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[9].value
+          value: "6"

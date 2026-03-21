@@ -1,0 +1,161 @@
+suite: Service templates
+templates:
+  - services.yaml
+
+tests:
+  # ── Core services (always rendered, documentIndex 0-5) ────────────
+  # Document order: postgresql(0), kafka(1), ollama(2), ingestion(3),
+  #                 embedding-worker(4), query-api(5)
+  # With prometheus.enabled=true: prometheus(6)
+  # With grafana.enabled=true:    grafana(7)
+
+  - it: postgresql service is ClusterIP on port 5432
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-postgresql
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 5432
+
+  - it: postgresql service selector targets correct component
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: postgresql
+
+  - it: kafka service is ClusterIP on port 9092
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kafka
+      - equal:
+          path: spec.ports[0].port
+          value: 9092
+
+  - it: ollama service is ClusterIP on port 11434
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ollama
+      - equal:
+          path: spec.ports[0].port
+          value: 11434
+
+  - it: ingestion service is ClusterIP on port 8001
+    documentIndex: 3
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ingestion
+      - equal:
+          path: spec.ports[0].port
+          value: 8001
+
+  - it: embedding-worker service is ClusterIP on port 8002
+    documentIndex: 4
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-embedding-worker
+      - equal:
+          path: spec.ports[0].port
+          value: 8002
+
+  - it: query-api service is ClusterIP on port 8000
+    documentIndex: 5
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-query-api
+      - equal:
+          path: spec.ports[0].port
+          value: 8000
+
+  - it: prometheus service rendered when prometheus enabled (default)
+    documentIndex: 6
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-prometheus
+      - equal:
+          path: spec.ports[0].port
+          value: 9090
+
+  - it: grafana service rendered when grafana enabled (default)
+    documentIndex: 7
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-grafana
+      - equal:
+          path: spec.ports[0].port
+          value: 3000
+
+  - it: prometheus service is absent when prometheus disabled
+    set:
+      prometheus.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 7
+
+  - it: grafana service is absent when grafana disabled
+    set:
+      grafana.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 7
+
+  - it: both observability services absent when both disabled
+    set:
+      prometheus.enabled: false
+      grafana.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: services are in the configured namespace
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: findoc-rag
+
+  - it: all services carry app.kubernetes.io/name label
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: findoc-rag
+
+  - it: query-api service port matches custom value
+    set:
+      queryApi.port: 9000
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9000

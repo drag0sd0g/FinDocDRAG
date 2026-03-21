@@ -1,0 +1,270 @@
+suite: Observability templates (Prometheus, Grafana, Ollama)
+templates:
+  - prometheus-deployment.yaml
+  - grafana-deployment.yaml
+  - ollama-deployment.yaml
+
+tests:
+  # ── prometheus-deployment.yaml ─────────────────────────────────────
+  # Produces 2 documents when enabled: Deployment(0) + PVC(1)
+
+  - it: prometheus renders two documents when enabled (default)
+    template: prometheus-deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: prometheus renders no documents when disabled
+    template: prometheus-deployment.yaml
+    set:
+      prometheus.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: prometheus deployment has correct kind
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: prometheus deployment name includes release name
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-prometheus
+
+  - it: prometheus deployment is in configured namespace
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: findoc-rag
+
+  - it: prometheus deployment uses prom/prometheus image
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: prom/prometheus:latest
+
+  - it: prometheus deployment exposes port 9090
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 9090
+
+  - it: prometheus deployment has readiness probe on /-/ready
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /-/ready
+
+  - it: prometheus deployment has 7d retention arg
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --storage.tsdb.retention.time=7d
+
+  - it: prometheus deployment mounts prometheus-config configmap
+    template: prometheus-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: RELEASE-NAME-prometheus-config
+
+  - it: prometheus PVC has correct kind
+    template: prometheus-deployment.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+
+  - it: prometheus PVC requests 5Gi storage
+    template: prometheus-deployment.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.resources.requests.storage
+          value: 5Gi
+
+  - it: prometheus PVC has ReadWriteOnce access mode
+    template: prometheus-deployment.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.accessModes[0]
+          value: ReadWriteOnce
+
+  # ── grafana-deployment.yaml ────────────────────────────────────────
+
+  - it: grafana renders one document when enabled (default)
+    template: grafana-deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: grafana renders no documents when disabled
+    template: grafana-deployment.yaml
+    set:
+      grafana.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: grafana deployment has correct kind
+    template: grafana-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: grafana deployment name includes release name
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-grafana
+
+  - it: grafana deployment uses grafana/grafana image
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: grafana/grafana:latest
+
+  - it: grafana deployment exposes port 3000
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 3000
+
+  - it: grafana deployment has admin password env var
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: GF_SECURITY_ADMIN_PASSWORD
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: admin
+
+  - it: grafana deployment disables user sign-up
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: GF_USERS_ALLOW_SIGN_UP
+      - equal:
+          path: spec.template.spec.containers[0].env[1].value
+          value: "false"
+
+  - it: grafana deployment has readiness probe on /api/health
+    template: grafana-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/health
+
+  - it: grafana deployment custom admin password
+    template: grafana-deployment.yaml
+    set:
+      grafana.adminPassword: supersecret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].value
+          value: supersecret
+
+  # ── ollama-deployment.yaml ─────────────────────────────────────────
+  # Produces 2 documents: Deployment(0) + PVC(1)
+
+  - it: ollama renders two documents (Deployment + PVC)
+    template: ollama-deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: ollama deployment has correct kind
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: ollama deployment name includes release name
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ollama
+
+  - it: ollama deployment uses Recreate strategy
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: ollama deployment uses ollama/ollama image
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ollama/ollama:latest
+
+  - it: ollama deployment exposes port 11434
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 11434
+
+  - it: ollama deployment postStart hook pulls configured model
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].lifecycle.postStart.exec.command[2]
+          pattern: "mistral:7b"
+
+  - it: ollama deployment readiness probe checks for model availability
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command[2]
+          pattern: "mistral:7b"
+
+  - it: ollama PVC requests 20Gi storage
+    template: ollama-deployment.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: spec.resources.requests.storage
+          value: 20Gi
+
+  - it: ollama deployment resource requests reflect values
+    template: ollama-deployment.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 8Gi
