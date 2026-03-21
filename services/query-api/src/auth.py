@@ -36,5 +36,9 @@ async def verify_api_key(request: Request) -> None:
         return
 
     api_key = request.headers.get("X-API-Key", "")
+    # Plaintext set-membership check is acceptable for short-lived dev/internal
+    # keys loaded from an environment variable.  For multi-tenant production use,
+    # replace with hashed tokens stored in the database (e.g. bcrypt + Vault) and
+    # use hmac.compare_digest() to prevent timing-based key enumeration.
     if api_key not in valid_keys:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")

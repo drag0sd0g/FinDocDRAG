@@ -46,7 +46,8 @@ def build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
     """
     context_parts: list[str] = []
     for i, chunk in enumerate(chunks, start=1):
-        header = f"[Source {i}] ({chunk.ticker}, {chunk.filing_date}, {chunk.section})"
+        score = f"{chunk.relevance_score:.2f}"
+        header = f"[Source {i}] ({chunk.ticker}, {chunk.filing_date}, {chunk.section}, relevance: {score})"
         context_parts.append(f"{header}\n{chunk.text}")
 
     context_block = "\n\n".join(context_parts)

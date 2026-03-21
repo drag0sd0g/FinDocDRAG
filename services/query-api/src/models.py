@@ -19,6 +19,10 @@ class QueryRequest(BaseModel):
 
     question: str
     ticker_filter: str | None = None
+    # Upper bound of 20 is a context-window budget: at ~512 tokens per chunk,
+    # 20 chunks consume ~10 K tokens, leaving headroom for the system prompt,
+    # question, and answer inside a 32 K-token context window.  Raise the cap
+    # only if you switch to a model with a larger context window.
     top_k: int = Field(default=5, ge=1, le=20)
 
     @field_validator("question")

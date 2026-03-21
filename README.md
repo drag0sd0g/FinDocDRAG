@@ -24,6 +24,8 @@ API Client  <-->  Query API  <-->  Ollama / OpenAI / Claude              |
 - Python 3.12+ (for local development and running tests outside of Docker)
 - GNU Make (optional, for convenience targets)
 
+**Hardware (Ollama / local LLM path only):** `make run` pulls `mistral:7b` (~4 GB download) and requires at least **8 GB of free RAM** at runtime (model weights + Docker overhead). On machines with less RAM the Ollama container will be OOM-killed. The remote-LLM path (`make run-remote` with `LLM_BACKEND=claude` or `openai`) has no GPU or RAM requirements beyond the base stack (~2 GB).
+
 ## Quick Start
 
 1. Clone the repository and copy the environment template:

@@ -44,7 +44,7 @@ class TestBuildPrompt:
         assert "[Source 1]" in prompt
         assert "[Source 2]" in prompt
         assert "Revenue was $391B." in prompt
-        assert "(AAPL, 2024-11-01, Item 7)" in prompt
+        assert "(AAPL, 2024-11-01, Item 7, relevance: 0.90)" in prompt
 
 
 # ── RAGGenerator ─────────────────────────────────────────────────

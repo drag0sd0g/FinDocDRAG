@@ -117,7 +117,7 @@ def main() -> None:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT avg(embedding) FROM document_chunks "
-                "WHERE created_at >= NOW() - INTERVAL '%s days'",
+                "WHERE created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '%s days'",
                 (DRIFT_LOOKBACK_DAYS,),
             )
             row = cur.fetchone()

@@ -25,6 +25,7 @@ from typing import Any
 import structlog
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -63,6 +64,10 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM
 RATE_LIMIT = os.getenv("RATE_LIMIT", "30/minute")
 QUERY_API_PORT = int(os.getenv("QUERY_API_PORT", "8000"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+# Comma-separated list of allowed CORS origins.
+# Defaults to "*" (allow all) for local development.
+# Restrict to specific origins in production (e.g. "https://app.example.com").
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 
 # ── Structured logging ───────────────────────────────────────────
 
@@ -155,6 +160,13 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["X-API-Key", "Content-Type", "X-Request-ID"],
+)
 
 
 # ── Request-ID middleware (TDD Section 8.3) ───────────────────────
