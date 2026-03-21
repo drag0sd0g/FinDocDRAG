@@ -95,6 +95,12 @@ services:
       sh -c '
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
           --create --if-not-exists \
+          --topic filings.embedded \
+          --partitions 6 \
+          --replication-factor 1 \
+          --config retention.ms=604800000 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists \
           --topic filings.dlq \
           --partitions 3 \
           --replication-factor 1 \

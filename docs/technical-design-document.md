@@ -601,12 +601,12 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 │                                                                     │
 │  Ollama ──X──▶ Query API                                           │
 │               └─▶ Timeout after 30 seconds                          │
-│               └─▶ Return HTTP 504 with partial response             │
+│               └─▶ Return HTTP 200 with degraded: true               │
 │                   (retrieved sources without LLM answer)            │
 │                                                                     │
-│  OpenAI API ──X──▶ Query API                                       │
+│  OpenAI / Claude API ──X──▶ Query API                              │
 │                    └─▶ Retry with exponential backoff (2 attempts)  │
-│                    └─▶ If still failing, return HTTP 502            │
+│                    └─▶ If still failing, return HTTP 200 degraded   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 

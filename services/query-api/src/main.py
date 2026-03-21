@@ -56,6 +56,7 @@ POSTGRES_DSN = (
 LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -117,7 +118,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # LLM backend (FR-18) — select via LLM_BACKEND env var
     if LLM_BACKEND == "openai":
-        llm = OpenAIBackend()  # type: ignore[assignment]
+        llm = OpenAIBackend(model=OPENAI_MODEL)  # type: ignore[assignment]
     elif LLM_BACKEND == "claude":
         llm = AnthropicBackend(model=CLAUDE_MODEL)  # type: ignore[assignment]
     else:

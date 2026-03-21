@@ -28,7 +28,8 @@ class OpenAIBackend:
         api_key: str | None = None,
     ) -> None:
         key = api_key or os.getenv("OPENAI_API_KEY", "")
-        self._client = AsyncOpenAI(api_key=key)
+        # max_retries=2: exponential backoff on network errors and 5xx (TDD Section 7.1)
+        self._client = AsyncOpenAI(api_key=key, max_retries=2)
         self._model = model
 
     @property

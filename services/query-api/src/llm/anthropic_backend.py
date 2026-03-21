@@ -27,8 +27,10 @@ class AnthropicBackend:
         model: str = DEFAULT_MODEL,
         api_key: str | None = None,
     ) -> None:
+        # max_retries=2: exponential backoff on network errors and 5xx (TDD Section 7.1)
         self._client = AsyncAnthropic(
-            api_key=api_key or os.getenv("ANTHROPIC_API_KEY", "")
+            api_key=api_key or os.getenv("ANTHROPIC_API_KEY", ""),
+            max_retries=2,
         )
         self._model = model
 
