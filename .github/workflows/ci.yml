@@ -143,7 +143,7 @@ jobs:
           version: v3.17.0
 
       - name: Install helm-unittest plugin
-        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.6.2
 
       - name: Lint Helm chart
         run: helm lint helm/findoc-rag/
