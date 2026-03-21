@@ -33,3 +33,18 @@ EDGAR_REQUEST_DURATION = Histogram(
     ["ticker"],
     buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
 )
+
+FILING_SIZE_BYTES = Histogram(
+    "findoc_ingestion_filing_size_bytes",
+    "Raw filing JSON payload size in bytes before Kafka publish",
+    buckets=(
+        100_000,       # 100 KB
+        500_000,       # 500 KB
+        1_000_000,     # 1 MB
+        5_000_000,     # 5 MB
+        10_000_000,    # 10 MB
+        50_000_000,    # 50 MB
+        100_000_000,   # 100 MB
+        157_286_400,   # 150 MB (hard limit)
+    ),
+)

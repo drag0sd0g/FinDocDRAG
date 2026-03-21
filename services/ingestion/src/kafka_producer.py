@@ -17,7 +17,7 @@ import structlog
 from confluent_kafka import KafkaError, Producer
 
 from src.config import settings
-from src.metrics import KAFKA_PUBLISH_TOTAL
+from src.metrics import FILING_SIZE_BYTES, KAFKA_PUBLISH_TOTAL
 
 if TYPE_CHECKING:
     from src.edgar_client import Filing
@@ -26,7 +26,7 @@ logger = structlog.get_logger()
 
 TOPIC_FILINGS_RAW = "filings.raw"
 
-_KAFKA_MAX_MESSAGE_BYTES = 20_971_520  # 20 MB — must match broker KAFKA_MESSAGE_MAX_BYTES
+_KAFKA_MAX_MESSAGE_BYTES = 157_286_400  # 150 MB — must match broker KAFKA_MESSAGE_MAX_BYTES
 
 
 def _delivery_callback(err: KafkaError | None, msg: Any) -> None:
@@ -92,6 +92,7 @@ class FilingProducer:
 
         payload = json.dumps(message)
         raw_bytes = len(payload.encode())
+        FILING_SIZE_BYTES.observe(raw_bytes)
 
         if raw_bytes > self.MAX_RAW_BYTES:
             KAFKA_PUBLISH_TOTAL.labels(topic=TOPIC_FILINGS_RAW, status="skipped_too_large").inc()

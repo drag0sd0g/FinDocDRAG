@@ -62,6 +62,42 @@ class Retriever:
         )
         return embedding.tolist()
 
+    def verify_embedding_model_consistency(self) -> None:
+        """Compare the loaded model's output dimension against stored embeddings.
+
+        Called at startup to detect silent model mismatches — e.g. the embedding
+        worker used all-MiniLM-L6-v2 (384-dim) but the query API is now configured
+        with a different model. A dimension mismatch will corrupt all retrieval
+        results silently at query time.
+
+        Logs INFO when consistent, ERROR when a mismatch is detected. Skips
+        the check when the database contains no embeddings yet (fresh install).
+        """
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT vector_dims(embedding) FROM document_chunks LIMIT 1")
+            row = cur.fetchone()
+        finally:
+            cur.close()
+
+        if row is None:
+            logger.info("embedding_consistency_check_skipped", reason="no_chunks_in_db")
+            return
+
+        stored_dim: int = row[0]
+        model_dim = self._model.get_sentence_embedding_dimension()
+
+        if stored_dim != model_dim:
+            logger.error(
+                "embedding_model_dimension_mismatch",
+                stored_dim=stored_dim,
+                model_dim=model_dim,
+                advice="Re-embed all documents with the current model or restore the original model",
+            )
+        else:
+            logger.info("embedding_model_consistent", dim=model_dim)
+
     def retrieve(
         self,
         question: str,

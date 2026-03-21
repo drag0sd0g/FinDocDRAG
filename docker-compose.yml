@@ -71,8 +71,8 @@ services:
       KAFKA_LOG_RETENTION_HOURS: "168"
       # Required for KRaft
       CLUSTER_ID: "findoc-rag-kafka-cluster-01"
-      KAFKA_MESSAGE_MAX_BYTES: "20971520"
-      KAFKA_REPLICA_FETCH_MAX_BYTES: "20971520"
+      KAFKA_MESSAGE_MAX_BYTES: "157286400"
+      KAFKA_REPLICA_FETCH_MAX_BYTES: "157286400"
     ports:
       - "9092:9092"
     volumes:
@@ -149,6 +149,11 @@ services:
       context: ./services/ingestion
       dockerfile: Dockerfile
     container_name: findoc-ingestion
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -180,6 +185,11 @@ services:
       context: ./services/embedding-worker
       dockerfile: Dockerfile
     container_name: findoc-embedding-worker
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -209,6 +219,11 @@ services:
       context: ./services/query-api
       dockerfile: Dockerfile
     container_name: findoc-query-api
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
     depends_on:
       db-migrate:
         condition: service_completed_successfully

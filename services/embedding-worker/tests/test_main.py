@@ -364,7 +364,7 @@ class TestConsumeLoop:
 
         mock_consumer.commit.assert_called()
 
-    @patch("src.main.time")
+    @patch("src.main._interruptible_sleep")
     @patch("src.main.chunk_filing")
     @patch("src.main.Producer")
     @patch("src.main.Consumer")
@@ -373,7 +373,7 @@ class TestConsumeLoop:
         mock_consumer_class: MagicMock,
         mock_producer_class: MagicMock,
         mock_chunk_filing: MagicMock,
-        mock_time: MagicMock,
+        mock_sleep: MagicMock,
     ) -> None:
         """chunk_filing failures trigger MAX_RETRIES retries with sleeps before DLQ."""
         import src.main as main_mod
@@ -409,7 +409,6 @@ class TestConsumeLoop:
         mock_consumer.poll.side_effect = poll_side_effect
         mock_consumer_class.return_value = mock_consumer
         mock_producer_class.return_value = mock_producer
-        mock_time.perf_counter.return_value = 0.0
 
         main_mod._shutdown_event.clear()
 
@@ -424,10 +423,10 @@ class TestConsumeLoop:
         assert mock_chunk_filing.call_count == main_mod.MAX_RETRIES + 1
 
         # sleep called MAX_RETRIES times between attempts
-        assert mock_time.sleep.call_count == main_mod.MAX_RETRIES
+        assert mock_sleep.call_count == main_mod.MAX_RETRIES
 
         # sleep durations follow 2^(attempt+1): 2 s, 4 s, 8 s
-        sleep_args = [c.args[0] for c in mock_time.sleep.call_args_list]
+        sleep_args = [c.args[0] for c in mock_sleep.call_args_list]
         assert sleep_args == [2, 4, 8]
 
         # Message routed to DLQ
@@ -441,7 +440,7 @@ class TestConsumeLoop:
         # Offset committed exactly once
         mock_consumer.commit.assert_called_once_with(mock_msg)
 
-    @patch("src.main.time")
+    @patch("src.main._interruptible_sleep")
     @patch("src.main.chunk_filing")
     @patch("src.main.Producer")
     @patch("src.main.Consumer")
@@ -450,7 +449,7 @@ class TestConsumeLoop:
         mock_consumer_class: MagicMock,
         mock_producer_class: MagicMock,
         mock_chunk_filing: MagicMock,
-        mock_time: MagicMock,
+        mock_sleep: MagicMock,
     ) -> None:
         """A transient error on the first attempt succeeds on the second attempt."""
         import src.main as main_mod
@@ -501,7 +500,6 @@ class TestConsumeLoop:
         mock_consumer.poll.side_effect = poll_side_effect
         mock_consumer_class.return_value = mock_consumer
         mock_producer_class.return_value = mock_producer
-        mock_time.perf_counter.return_value = 0.0
 
         main_mod._shutdown_event.clear()
 
@@ -516,8 +514,8 @@ class TestConsumeLoop:
         assert mock_chunk_filing.call_count == 2
 
         # One sleep between attempts
-        assert mock_time.sleep.call_count == 1
-        assert mock_time.sleep.call_args.args[0] == 2  # first backoff = 2 s
+        assert mock_sleep.call_count == 1
+        assert mock_sleep.call_args.args[0] == 2  # first backoff = 2 s
 
         # No DLQ publish
         dlq_calls = [

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -133,6 +133,185 @@ class TestSearchFilings:
 
         result = await client.search_10k_filings("AAPL", mock_session)
         assert result == []
+
+
+# ── EdgarClient retry / backoff (search) ─────────────────────────
+
+
+class TestSearchFilingsRetry:
+    """Verify exponential backoff in search_10k_filings (max_retries=3)."""
+
+    @pytest.mark.asyncio
+    async def test_retries_on_client_error_then_succeeds(self) -> None:
+        """Fails twice, succeeds on the third attempt; sleep called twice."""
+        import aiohttp
+
+        client = EdgarClient(user_agent="Test", rate_limit_rps=100, max_retries=3)
+        error = aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=503, message="Unavailable"
+        )
+        edgar_response = {"hits": {"hits": [{"_source": {"adsh": "0001", "file_date": "2024"}}]}}
+
+        call_count = 0
+
+        @asynccontextmanager
+        async def _flaky_ctx(*a: Any, **kw: Any):  # type: ignore[misc]
+            nonlocal call_count
+            call_count += 1
+            mock_resp = MagicMock()
+            if call_count < 3:
+                mock_resp.raise_for_status.side_effect = error
+            else:
+                mock_resp.raise_for_status = MagicMock()
+
+                async def _json(**kwargs: Any) -> dict[str, Any]:
+                    return edgar_response
+
+                mock_resp.json = _json
+            yield mock_resp
+
+        mock_session = MagicMock()
+        mock_session.get = _flaky_ctx
+
+        with patch("src.edgar_client.asyncio.sleep") as mock_sleep:
+            result = await client.search_10k_filings("AAPL", mock_session)
+
+        assert len(result) == 1
+        assert call_count == 3
+        # Two backoff sleeps (2 s, 4 s) plus one sub-second rate-limit sleep on success.
+        # Filter on >= 1 s to isolate the exponential-backoff sleeps.
+        backoff_args = [c.args[0] for c in mock_sleep.call_args_list if c.args[0] >= 1]
+        assert backoff_args == [2, 4]
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_after_all_retries_exhausted(self) -> None:
+        """All attempts fail — returns [] without raising; sleep called max_retries-1 times."""
+        import aiohttp
+
+        client = EdgarClient(user_agent="Test", rate_limit_rps=100, max_retries=3)
+        error = aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=503, message="Unavailable"
+        )
+
+        @asynccontextmanager
+        async def _always_fail(*a: Any, **kw: Any):  # type: ignore[misc]
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status.side_effect = error
+            yield mock_resp
+
+        mock_session = MagicMock()
+        mock_session.get = _always_fail
+
+        with patch("src.edgar_client.asyncio.sleep") as mock_sleep:
+            result = await client.search_10k_filings("AAPL", mock_session)
+
+        assert result == []
+        # 3 attempts → 2 sleeps (no sleep after the final failure)
+        assert mock_sleep.call_count == 2
+        sleep_args = [c.args[0] for c in mock_sleep.call_args_list]
+        assert sleep_args == [2, 4]
+
+    @pytest.mark.asyncio
+    async def test_backoff_values_follow_exponential_schedule(self) -> None:
+        """Verify exact sleep durations: 2^1, 2^2 seconds for max_retries=3."""
+        import aiohttp
+
+        client = EdgarClient(user_agent="Test", rate_limit_rps=100, max_retries=3)
+        error = aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=500, message="Error"
+        )
+
+        @asynccontextmanager
+        async def _fail(*a: Any, **kw: Any):  # type: ignore[misc]
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status.side_effect = error
+            yield mock_resp
+
+        mock_session = MagicMock()
+        mock_session.get = _fail
+
+        with patch("src.edgar_client.asyncio.sleep") as mock_sleep:
+            await client.search_10k_filings("AAPL", mock_session)
+
+        assert mock_sleep.call_args_list == [call(2), call(4)]
+
+
+# ── EdgarClient retry / backoff (fetch) ──────────────────────────
+
+
+class TestFetchFilingTextRetry:
+    """Verify exponential backoff in fetch_filing_text (max_retries=3)."""
+
+    @pytest.mark.asyncio
+    async def test_retries_on_client_error_then_succeeds(self) -> None:
+        """Fails twice, succeeds on the third attempt; sleep called twice."""
+        import aiohttp
+
+        client = EdgarClient(user_agent="Test", rate_limit_rps=100, max_retries=3)
+        error = aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=503, message="Unavailable"
+        )
+        text_bytes = b"Item 1. Business..."
+
+        call_count = 0
+
+        @asynccontextmanager
+        async def _flaky_ctx(*a: Any, **kw: Any):  # type: ignore[misc]
+            nonlocal call_count
+            call_count += 1
+            mock_resp = MagicMock()
+            if call_count < 3:
+                mock_resp.raise_for_status.side_effect = error
+            else:
+                mock_resp.raise_for_status = MagicMock()
+                mock_resp.content_length = len(text_bytes)
+
+                async def _iter_chunked(size: int):  # type: ignore[no-untyped-def]
+                    yield text_bytes
+
+                mock_content = MagicMock()
+                mock_content.iter_chunked = _iter_chunked
+                mock_resp.content = mock_content
+            yield mock_resp
+
+        mock_session = MagicMock()
+        mock_session.get = _flaky_ctx
+
+        with patch("src.edgar_client.asyncio.sleep") as mock_sleep:
+            result = await client.fetch_filing_text("https://example.com/f", mock_session)
+
+        assert result == "Item 1. Business..."
+        assert call_count == 3
+        # Two backoff sleeps (2 s, 4 s) plus one sub-second rate-limit sleep on success.
+        backoff_args = [c.args[0] for c in mock_sleep.call_args_list if c.args[0] >= 1]
+        assert backoff_args == [2, 4]
+
+    @pytest.mark.asyncio
+    async def test_returns_none_after_all_retries_exhausted(self) -> None:
+        """All attempts fail — returns None; sleep called max_retries-1 times."""
+        import aiohttp
+
+        client = EdgarClient(user_agent="Test", rate_limit_rps=100, max_retries=3)
+        error = aiohttp.ClientResponseError(
+            request_info=MagicMock(), history=(), status=503, message="Unavailable"
+        )
+
+        @asynccontextmanager
+        async def _always_fail(*a: Any, **kw: Any):  # type: ignore[misc]
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status.side_effect = error
+            yield mock_resp
+
+        mock_session = MagicMock()
+        mock_session.get = _always_fail
+
+        with patch("src.edgar_client.asyncio.sleep") as mock_sleep:
+            result = await client.fetch_filing_text("https://example.com/f", mock_session)
+
+        assert result is None
+        assert mock_sleep.call_count == 2
+        sleep_args = [c.args[0] for c in mock_sleep.call_args_list]
+        assert sleep_args == [2, 4]
 
 
 # ── EdgarClient.fetch_filing_text ────────────────────────────────

@@ -37,6 +37,7 @@ from src.embedder import Embedder
 from src.metrics import (
     BATCH_DURATION,
     CHUNK_TOKENS,
+    CHUNKS_PER_FILING,
     CHUNKS_PROCESSED_TOTAL,
     DLQ_MESSAGES_TOTAL,
     KAFKA_LAG,
@@ -113,6 +114,16 @@ _consumer_thread: threading.Thread | None = None
 _shutdown_event = threading.Event()
 
 
+def _interruptible_sleep(seconds: float) -> None:
+    """Sleep that unblocks immediately when shutdown is signalled.
+
+    Using _shutdown_event.wait() instead of time.sleep() means the retry
+    backoff does not block Kafka polling for the full duration when the
+    worker is being shut down gracefully.
+    """
+    _shutdown_event.wait(timeout=seconds)
+
+
 # ── DLQ helper ───────────────────────────────────────────────────
 
 def _publish_to_dlq(
@@ -168,6 +179,8 @@ def _process_filing(
     if not chunks:
         logger.warning("no_chunks_produced", accession=accession)
         return chunks
+
+    CHUNKS_PER_FILING.observe(len(chunks))
 
     # Record token distribution (TDD Section 8.1.2)
     for c in chunks:
@@ -305,7 +318,7 @@ def _consume_loop() -> None:
                         accession=accession,
                         error=str(exc),
                     )
-                    time.sleep(sleep_s)
+                    _interruptible_sleep(sleep_s)
                 else:
                     logger.error(
                         "processing_failed_all_retries",

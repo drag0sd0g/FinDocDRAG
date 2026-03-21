@@ -40,6 +40,12 @@ CHUNK_TOKENS = Histogram(
     buckets=(32, 64, 128, 256, 384, 512, 640, 768, 1024),
 )
 
+CHUNKS_PER_FILING = Histogram(
+    "findoc_embedding_chunks_per_filing",
+    "Number of chunks produced per filing — identifies pathologically large or empty filings",
+    buckets=(10, 25, 50, 100, 200, 400, 800, 1500, 3000),
+)
+
 # ── Gauges ───────────────────────────────────────────────────────
 
 KAFKA_LAG = Gauge(

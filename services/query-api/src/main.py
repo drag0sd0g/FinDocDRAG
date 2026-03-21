@@ -127,6 +127,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Retriever (loads embedding model)
     _retriever = Retriever(dsn=POSTGRES_DSN, model_name=EMBEDDING_MODEL)
     _retriever.connect()
+    _retriever.verify_embedding_model_consistency()
 
     # LLM backend (FR-18) — select via LLM_BACKEND env var
     if LLM_BACKEND == "openai":

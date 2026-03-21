@@ -90,6 +90,82 @@ class TestRetriever:
         assert "ticker = %s" not in executed_sql
 
 
+class TestEmbeddingModelConsistency:
+    """Tests for Retriever.verify_embedding_model_consistency."""
+
+    @patch("src.rag.retriever.SentenceTransformer")
+    def test_consistent_dimensions_logs_info(self, mock_st_class: MagicMock) -> None:
+        """No error logged when stored dim matches model dim."""
+        from src.rag.retriever import Retriever
+
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st_class.return_value = mock_model
+
+        with patch("src.rag.retriever.psycopg2"):
+            retriever = Retriever(dsn="postgresql://fake", model_name="test")
+
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = (384,)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        mock_conn.closed = False
+        retriever._conn = mock_conn
+
+        # Should complete without raising
+        retriever.verify_embedding_model_consistency()
+        mock_cur.execute.assert_called_once()
+
+    @patch("src.rag.retriever.SentenceTransformer")
+    def test_dimension_mismatch_logs_error(self, mock_st_class: MagicMock) -> None:
+        """Error logged when stored dim differs from model dim (silent corruption risk)."""
+        from src.rag.retriever import Retriever
+
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st_class.return_value = mock_model
+
+        with patch("src.rag.retriever.psycopg2"):
+            retriever = Retriever(dsn="postgresql://fake", model_name="test")
+
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = (768,)  # mismatch!
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        mock_conn.closed = False
+        retriever._conn = mock_conn
+
+        with patch("src.rag.retriever.logger") as mock_logger:
+            retriever.verify_embedding_model_consistency()
+            mock_logger.error.assert_called_once()
+            call_kwargs = mock_logger.error.call_args[1]
+            assert call_kwargs["stored_dim"] == 768
+            assert call_kwargs["model_dim"] == 384
+
+    @patch("src.rag.retriever.SentenceTransformer")
+    def test_skips_check_when_no_data(self, mock_st_class: MagicMock) -> None:
+        """Check is skipped (not an error) when document_chunks is empty."""
+        from src.rag.retriever import Retriever
+
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st_class.return_value = mock_model
+
+        with patch("src.rag.retriever.psycopg2"):
+            retriever = Retriever(dsn="postgresql://fake", model_name="test")
+
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = None  # empty table
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        mock_conn.closed = False
+        retriever._conn = mock_conn
+
+        with patch("src.rag.retriever.logger") as mock_logger:
+            retriever.verify_embedding_model_consistency()
+            mock_logger.error.assert_not_called()
+
+
 class TestRetrievedChunk:
     """Tests for the RetrievedChunk dataclass."""
 
