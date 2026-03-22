@@ -17,15 +17,31 @@ Usage (with the full Docker Compose stack running):
 
 Environment variables:
 
-    OPENAI_API_KEY   Required for ragas LLM-based metrics (faithfulness,
-                     context_precision, answer_relevancy).  ragas picks
-                     this up automatically — no extra configuration needed.
+    Judge LLM (priority order — first one set wins):
 
-                     MEMORY NOTE: On a memory-constrained machine (e.g. 8 GB
-                     M1) set OPENAI_API_KEY so that LLM compute is offloaded
-                     to the OpenAI API rather than running Ollama locally.
-                     You can then stop the ollama container before evaluating:
-                         docker compose stop ollama
+    ANTHROPIC_API_KEY  Use Claude as the ragas judge LLM (preferred).
+                       Model defaults to claude-haiku-4-5; override with
+                       CLAUDE_JUDGE_MODEL.
+
+    OPENAI_API_KEY     Use OpenAI as the ragas judge LLM. ragas picks
+                       this up automatically — no extra configuration needed.
+
+                       MEMORY NOTE: On a memory-constrained machine (e.g. 8 GB
+                       M1) set OPENAI_API_KEY so that LLM compute is offloaded
+                       to the OpenAI API rather than running Ollama locally.
+                       You can then stop the ollama container before evaluating:
+                           docker compose stop ollama
+
+    (neither set)      Falls back to Ollama running locally. Override the
+                       Ollama base URL and model with EVAL_OLLAMA_URL and
+                       EVAL_OLLAMA_MODEL.
+
+    CLAUDE_JUDGE_MODEL  Claude model name for judging (default: claude-haiku-4-5).
+                        Only used when ANTHROPIC_API_KEY is set.
+    EVAL_OLLAMA_URL     Ollama base URL for the judge (default: http://localhost:11434).
+                        Only used when neither API key is set.
+    EVAL_OLLAMA_MODEL   Ollama model for the judge (default: mistral:7b).
+                        Only used when neither API key is set.
 
     EVAL_API_URL     Override the Query API base URL (default: http://localhost:8000)
     EVAL_API_KEY     Override the X-API-Key header value (default: dev-key-1)

@@ -2,7 +2,7 @@
 
 References:
   - TDD: Section 5.2.3 LLM Backend Abstraction
-  - TDD: FR-18 (two backends selectable via LLM_BACKEND env var)
+  - TDD: FR-18 (three backends selectable via LLM_BACKEND env var: ollama, openai, claude)
 """
 
 from __future__ import annotations

@@ -385,7 +385,7 @@ make helm-teardown
 
 Query API は `LLM_BACKEND` 環境変数で選択可能な 3 つの LLM バックエンドをサポートします。
 
-**Ollama（デフォルト）** -- Docker Compose スタック内でローカルに実行されます。API キー不要。モデルは初回起動時に自動的に取得されます。`make run`（または `docker compose --profile local-llm up`）で起動します。開発環境およびセルフホスト型デプロイに適しています。`mistral:7b` には約 6 GB の RAM が必要です。
+**Ollama（デフォルト）** -- Docker Compose スタック内でローカルに実行されます。API キー不要。モデルは初回起動時に自動的に取得されます。`make run`（または `docker compose --profile local-llm up`）で起動します。開発環境およびセルフホスト型デプロイに適しています。`mistral:7b` のモデルウェイトには約 6 GB の RAM が必要です（Docker オーバーヘッドを含む合計では約 8 GB）。
 
 **OpenAI** -- OpenAI のチャット補完 API を呼び出します。`LLM_BACKEND=openai` を設定し、有効な `OPENAI_API_KEY` を提供します。デフォルトでは `gpt-4o-mini` を使用します。`make run-remote` で起動します。より高品質な回答や評価比較に有用です。
 

@@ -157,7 +157,12 @@ For every claim in your answer, cite the source using [Source N] notation,
 where N corresponds to the context chunk number.
 
 Context:
-{numbered_chunks_with_metadata}
+[Source 1] (TICKER, YYYY-MM-DD, Item N, relevance: 0.XX)
+{chunk_text}
+
+[Source 2] (TICKER, YYYY-MM-DD, Item N, relevance: 0.XX)
+{chunk_text}
+...
 
 Question: {user_question}
 
@@ -166,7 +171,7 @@ Answer:
 
 | ID    | Requirement                                                                                                                                                                                                                                                                                                           |
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-16 | The Query API SHALL send the constructed prompt to the configured LLM backend (Ollama local or OpenAI API) and return the generated answer.                                                                                                                                                                           |
+| FR-16 | The Query API SHALL send the constructed prompt to the configured LLM backend (Ollama local, OpenAI API, or Anthropic API) and return the generated answer.                                                                                                                                                                           |
 | FR-17 | The API response SHALL include: `answer` (string or null), `sources` (array of objects with `chunk_id`, `ticker`, `filing_date`, `section`, `relevance_score`, and `text_preview` — first 200 characters of the chunk), `model` (string — which LLM was used), `timing` (object with `embedding_ms`, `retrieval_ms`, `generation_ms`, and `total_ms`), `degraded` (boolean — true when LLM is unavailable), and `request_id` (UUID). |
 | FR-18 | The Query API SHALL support three LLM backends, selectable via environment variable (`LLM_BACKEND`): `ollama` (default, using `mistral:7b` model), `openai` (using `gpt-4o-mini` model), and `claude` (using `claude-opus-4-6` model, overridable via `CLAUDE_MODEL`).                                                |
 
@@ -325,7 +330,7 @@ The system consists of four independently deployable services connected by Kafka
 1. **Section split**: Parse 10-K structure and split by known items (Item 1, 1A, 1B, 2, 3, 4, 5, 6, 7, 7A, 8, 9, 9A, 9B, 10, 11, 12, 13, 14, 15). The section name is stored as metadata.
 2. **Paragraph split**: Within each section, split by double newlines.
 3. **Token-based windowing**: If a paragraph exceeds 512 tokens, split it into 512-token windows with 64-token overlap. Token counting uses the `tiktoken` library with the `cl100k_base` encoding.
-4. Each resulting chunk is assigned a deterministic `chunk_id`: `SHA256(accession_number + section_name + chunk_sequence_index)`. The following fields are stored per chunk in the `document_chunks` table:
+4. Each resulting chunk is assigned a deterministic `chunk_id`: `SHA256(accession_number || section_name || chunk_sequence_index)` where the three values are concatenated directly (no separator). The following fields are stored per chunk in the `document_chunks` table:
 
 | Field              | Type        | Description                                                              |
 | ------------------ | ----------- | ------------------------------------------------------------------------ |
@@ -333,7 +338,7 @@ The system consists of four independently deployable services connected by Kafka
 | `accession_number` | `VARCHAR(30)` | SEC EDGAR accession number (foreign key to `ingestion_log`)            |
 | `ticker`           | `VARCHAR(10)` | Ticker symbol (e.g. `AAPL`)                                            |
 | `filing_date`      | `DATE`        | Date the 10-K was filed                                                |
-| `section_name`     | `VARCHAR(100)`| 10-K item name (e.g. `Item 1A - Risk Factors`, or `Unknown` if unparsed)|
+| `section_name`     | `VARCHAR(100)`| 10-K item name (e.g. `Item 1A`, or `Unknown` if unparsed)              |
 | `chunk_index`      | `INTEGER`     | Zero-based sequence index within the filing                            |
 | `token_count`      | `INTEGER`     | Number of tokens in this chunk (tiktoken `cl100k_base`)                |
 | `embedding`        | `vector(384)` | Dense embedding vector from `all-MiniLM-L6-v2`                        |
@@ -393,7 +398,7 @@ Response:
       "chunk_id": "a1b2c3d4...",
       "ticker": "AAPL",
       "filing_date": "2024-11-01",
-      "section": "Item 1A - Risk Factors",
+      "section": "Item 1A",
       "relevance_score": 0.87,
       "text_preview": "The Company's business, reputation, results of operations, financial condition..."
     }
@@ -693,7 +698,7 @@ kubectl exec -n findoc-rag deploy/findoc-rag-kafka -- \
 
 ### 8.1 Metrics
 
-All services expose Prometheus metrics on `/metrics` (port 9090).
+All services expose Prometheus metrics on `/metrics` on their respective HTTP ports (ingestion: 8001, embedding-worker: 8002, query-api: 8000). Port 9090 is the Prometheus server's own UI/API port, not a service metrics port.
 
 #### 8.1.1 Ingestion Service Metrics
 
@@ -714,6 +719,8 @@ All services expose Prometheus metrics on `/metrics` (port 9090).
 | `findoc_embedding_dlq_messages_total`     | Counter   | —                  | Messages sent to dead letter queue         |
 | `findoc_embedding_kafka_lag`              | Gauge     | `partition`        | Consumer lag per partition                 |
 | `findoc_embedding_chunks_per_filing`      | Histogram | `ticker`           | Number of chunks produced per filing       |
+| `findoc_embedding_drift_score`            | Gauge     | —                  | Cosine distance: recent vs. corpus mean embeddings (see §8.4) |
+| `findoc_embedding_drift_alert`            | Gauge     | —                  | 1 if drift exceeds threshold, 0 otherwise (see §8.4)          |
 
 #### 8.1.3 Query API Metrics
 
@@ -730,9 +737,12 @@ All services expose Prometheus metrics on `/metrics` (port 9090).
 
 ### 8.2 Grafana Dashboards
 
-The project includes two pre-built Grafana dashboards as JSON files in `monitoring/grafana/dashboards/`:
+The project includes three Grafana dashboards:
 
-**Dashboard 1: Ingestion & Embedding Pipeline**
+- **Docker Compose** (`monitoring/grafana/dashboards/`): two dashboards mounted directly into the Grafana container.
+- **Helm chart** (`helm/findoc-rag/dashboards/findoc-overview.json`): a single consolidated dashboard provisioned automatically via ConfigMap at `helm install` time.
+
+**Dashboard 1: Ingestion & Embedding Pipeline** (Docker Compose)
 
 - Filing ingestion rate (filings/minute) by ticker
 - Embedding worker throughput (chunks/second)
@@ -748,6 +758,8 @@ The project includes two pre-built Grafana dashboards as JSON files in `monitori
 - Top-1 retrieval relevance score distribution
 - LLM token consumption rate
 - Degraded response rate
+
+**Dashboard 3: FinDoc Overview** (Helm chart only) — combines query API and ingestion/embedding pipeline panels into a single view, auto-provisioned from `helm/findoc-rag/dashboards/findoc-overview.json` via the `grafana-dashboards-configmap` ConfigMap.
 
 ### 8.3 Structured Logging
 
@@ -931,8 +943,11 @@ A single `docker compose up` brings up the full stack locally:
 # Simplified overview of docker-compose.yml services
 services:
   postgres: # PostgreSQL 16 with pgvector extension
+  db-migrate: # Init container: applies db/migrations/001_initial_schema.sql
   kafka: # Apache Kafka (KRaft mode, no Zookeeper)
-  ollama: # Ollama with mistral:7b model pre-pulled
+  kafka-setup: # Init container: creates filings.embedded and filings.dlq topics
+  ollama: # Ollama server
+  ollama-pull: # Init container: pulls mistral:7b model on first start
   ingestion: # Ingestion Service
   embedding-worker: # Embedding Worker
   query-api: # Query API (exposed on port 8000)
@@ -1058,10 +1073,14 @@ spec:
 setup:          # Create virtual environments, install dependencies
 test:           # Run pytest for all services
 lint:           # Run ruff + mypy for all services
-run:            # docker compose up (full local stack)
+run:            # docker compose up (full local stack, including Ollama)
+run-remote:     # docker compose up without Ollama (for LLM_BACKEND=claude or openai)
+stop:           # Stop Docker Compose stack
+clean:          # Stop stack and remove all volumes
 eval:           # Run RAG evaluation harness
 docker-build:   # Build Docker images for all services
 helm-deploy:    # Deploy to Kubernetes via Helm
+helm-test:      # Run Helm unit tests (requires helm-unittest plugin)
 helm-teardown:  # Remove Helm release
 migrate:        # Run database migrations
 ```

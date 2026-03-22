@@ -157,7 +157,12 @@ For every claim in your answer, cite the source using [Source N] notation,
 where N corresponds to the context chunk number.
 
 Context:
-{numbered_chunks_with_metadata}
+[Source 1] (TICKER, YYYY-MM-DD, Item N, relevance: 0.XX)
+{chunk_text}
+
+[Source 2] (TICKER, YYYY-MM-DD, Item N, relevance: 0.XX)
+{chunk_text}
+...
 
 Question: {user_question}
 
@@ -166,7 +171,7 @@ Answer:
 
 | ID    | 要件                                                                                                                                                                                                                                                                                                            |
 | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-16 | Query API は、構築したプロンプトを設定済みの LLM バックエンド（Ollama ローカルまたは OpenAI API）に送信し、生成された回答を返さなければならない（SHALL）。                                                                                                                                                        |
+| FR-16 | Query API は、構築したプロンプトを設定済みの LLM バックエンド（Ollama ローカル、OpenAI API、または Anthropic API）に送信し、生成された回答を返さなければならない（SHALL）。                                                                                                                                                        |
 | FR-17 | API レスポンスには以下が含まれなければならない（SHALL）: `answer`（文字列または null）、`sources`（`chunk_id`、`ticker`、`filing_date`、`section`、`relevance_score`、および `text_preview` — チャンクの最初の 200 文字 — を持つオブジェクトの配列）、`model`（文字列 — 使用された LLM）、`timing`（`embedding_ms`、`retrieval_ms`、`generation_ms`、および `total_ms` を持つオブジェクト）、`degraded`（ブール値 — LLM が利用不可の場合は true）、`request_id`（UUID）。 |
 | FR-18 | Query API は、環境変数（`LLM_BACKEND`）で選択可能な 3 つの LLM バックエンドをサポートしなければならない（SHALL）: `ollama`（デフォルト、`mistral:7b` モデル使用）、`openai`（`gpt-4o-mini` モデル使用）、および `claude`（`claude-opus-4-6` モデル使用、`CLAUDE_MODEL` 環境変数で上書き可能）。                  |
 
@@ -325,7 +330,7 @@ Answer:
 1. **セクション分割**: 10-K 構造を解析し、既知のアイテム（Item 1、1A、1B、2、3、4、5、6、7、7A、8、9、9A、9B、10、11、12、13、14、15）で分割する。セクション名はメタデータとして保存される。
 2. **段落分割**: 各セクション内で、二重改行で分割する。
 3. **トークンベースのウィンドウ化**: 段落が 512 トークンを超える場合、64 トークンのオーバーラップを持つ 512 トークンのウィンドウに分割する。トークンカウントは `cl100k_base` エンコーディングで `tiktoken` ライブラリを使用する。
-4. 各結果チャンクには、決定論的な `chunk_id` が割り当てられる: `SHA256(accession_number + section_name + chunk_sequence_index)`。以下のフィールドが `document_chunks` テーブルのチャンクごとに保存される:
+4. 各結果チャンクには、決定論的な `chunk_id` が割り当てられる: `SHA256(accession_number || section_name || chunk_sequence_index)`（3 つの値をセパレータなしで直接連結）。以下のフィールドが `document_chunks` テーブルのチャンクごとに保存される:
 
 | フィールド          | 型            | 説明                                                                     |
 | ------------------ | ------------- | ------------------------------------------------------------------------ |
@@ -333,7 +338,7 @@ Answer:
 | `accession_number` | `VARCHAR(30)` | SEC EDGAR アクセッション番号（`ingestion_log` への外部キー）              |
 | `ticker`           | `VARCHAR(10)` | ティッカーシンボル（例: `AAPL`）                                           |
 | `filing_date`      | `DATE`        | 10-K が提出された日付                                                     |
-| `section_name`     | `VARCHAR(100)`| 10-K のアイテム名（例: `Item 1A - Risk Factors`、解析不能の場合は `Unknown`）|
+| `section_name`     | `VARCHAR(100)`| 10-K のアイテム名（例: `Item 1A`、解析不能の場合は `Unknown`）             |
 | `chunk_index`      | `INTEGER`     | 書類内のゼロベースのシーケンスインデックス                                  |
 | `token_count`      | `INTEGER`     | このチャンクのトークン数（tiktoken `cl100k_base`）                         |
 | `embedding`        | `vector(384)` | `all-MiniLM-L6-v2` からの密な埋め込みベクトル                              |
@@ -393,7 +398,7 @@ Answer:
       "chunk_id": "a1b2c3d4...",
       "ticker": "AAPL",
       "filing_date": "2024-11-01",
-      "section": "Item 1A - Risk Factors",
+      "section": "Item 1A",
       "relevance_score": 0.87,
       "text_preview": "The Company's business, reputation, results of operations, financial condition..."
     }
@@ -693,7 +698,7 @@ kubectl exec -n findoc-rag deploy/findoc-rag-kafka -- \
 
 ### 8.1 メトリクス
 
-すべてのサービスは `/metrics`（ポート 9090）で Prometheus メトリクスを公開する。
+すべてのサービスは `/metrics` でそれぞれの HTTP ポート（ingestion: 8001、embedding-worker: 8002、query-api: 8000）上に Prometheus メトリクスを公開する。ポート 9090 は Prometheus サーバー自身の UI/API ポートであり、サービスのメトリクスポートではない。
 
 #### 8.1.1 Ingestion Service のメトリクス
 
@@ -714,6 +719,8 @@ kubectl exec -n findoc-rag deploy/findoc-rag-kafka -- \
 | `findoc_embedding_dlq_messages_total`     | Counter   | —                  | デッドレターキューに送られたメッセージ数        |
 | `findoc_embedding_kafka_lag`              | Gauge     | `partition`        | パーティションごとのコンシューマーラグ          |
 | `findoc_embedding_chunks_per_filing`      | Histogram | `ticker`           | 書類ごとに生成されたチャンク数                  |
+| `findoc_embedding_drift_score`            | Gauge     | —                  | 最近の埋め込みとコーパス平均のコサイン距離（§8.4 参照） |
+| `findoc_embedding_drift_alert`            | Gauge     | —                  | ドリフトがしきい値を超えた場合は 1、それ以外は 0（§8.4 参照） |
 
 #### 8.1.3 Query API のメトリクス
 
@@ -730,9 +737,12 @@ kubectl exec -n findoc-rag deploy/findoc-rag-kafka -- \
 
 ### 8.2 Grafana ダッシュボード
 
-プロジェクトには `monitoring/grafana/dashboards/` にある 2 つの事前構築済み Grafana ダッシュボードが JSON ファイルとして含まれている:
+プロジェクトには 3 つの Grafana ダッシュボードが含まれている:
 
-**ダッシュボード 1: 取り込みと埋め込みパイプライン**
+- **Docker Compose**（`monitoring/grafana/dashboards/`）: 2 つのダッシュボードが Grafana コンテナに直接マウントされる。
+- **Helm チャート**（`helm/findoc-rag/dashboards/findoc-overview.json`）: `helm install` 時に ConfigMap 経由で自動プロビジョニングされる単一の統合ダッシュボード。
+
+**ダッシュボード 1: 取り込みと埋め込みパイプライン**（Docker Compose）
 
 - ティッカー別の書類取り込みレート（書類/分）
 - 埋め込みワーカーのスループット（チャンク/秒）
@@ -748,6 +758,8 @@ kubectl exec -n findoc-rag deploy/findoc-rag-kafka -- \
 - トップ 1 の検索関連性スコア分布
 - LLM トークン消費レート
 - デグレードレスポンスレート
+
+**ダッシュボード 3: FinDoc 概要**（Helm チャートのみ）— Query API と取り込み/埋め込みパイプラインのパネルを 1 つのビューに統合したもの。`helm/findoc-rag/dashboards/findoc-overview.json` から `grafana-dashboards-configmap` ConfigMap 経由で自動プロビジョニングされる。
 
 ### 8.3 構造化ロギング
 
@@ -931,8 +943,11 @@ findoc-rag/
 # Simplified overview of docker-compose.yml services
 services:
   postgres: # PostgreSQL 16 with pgvector extension
+  db-migrate: # Init container: applies db/migrations/001_initial_schema.sql
   kafka: # Apache Kafka (KRaft mode, no Zookeeper)
-  ollama: # Ollama with mistral:7b model pre-pulled
+  kafka-setup: # Init container: creates filings.embedded and filings.dlq topics
+  ollama: # Ollama server
+  ollama-pull: # Init container: pulls mistral:7b model on first start
   ingestion: # Ingestion Service
   embedding-worker: # Embedding Worker
   query-api: # Query API (exposed on port 8000)
@@ -1058,10 +1073,14 @@ spec:
 setup:          # Create virtual environments, install dependencies
 test:           # Run pytest for all services
 lint:           # Run ruff + mypy for all services
-run:            # docker compose up (full local stack)
+run:            # docker compose up (full local stack, including Ollama)
+run-remote:     # docker compose up without Ollama (for LLM_BACKEND=claude or openai)
+stop:           # Stop Docker Compose stack
+clean:          # Stop stack and remove all volumes
 eval:           # Run RAG evaluation harness
 docker-build:   # Build Docker images for all services
 helm-deploy:    # Deploy to Kubernetes via Helm
+helm-test:      # Run Helm unit tests (requires helm-unittest plugin)
 helm-teardown:  # Remove Helm release
 migrate:        # Run database migrations
 ```

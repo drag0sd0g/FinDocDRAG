@@ -385,7 +385,7 @@ All configuration is driven by environment variables. See `.env.example` for the
 
 The Query API supports 3 LLM backends, selectable via the `LLM_BACKEND` environment variable:
 
-**Ollama (default)** -- Runs locally inside the Docker Compose stack. No API key required. The model is pulled automatically on first start. Start with `make run` (or `docker compose --profile local-llm up`). Suitable for development and self-hosted deployments. Requires ~6 GB RAM for `mistral:7b`.
+**Ollama (default)** -- Runs locally inside the Docker Compose stack. No API key required. The model is pulled automatically on first start. Start with `make run` (or `docker compose --profile local-llm up`). Suitable for development and self-hosted deployments. Requires ~6 GB RAM for the `mistral:7b` model weights (~8 GB total including Docker overhead).
 
 **OpenAI** -- Calls the OpenAI chat completions API. Set `LLM_BACKEND=openai` and provide a valid `OPENAI_API_KEY`. Uses `gpt-4o-mini` by default. Start with `make run-remote`. Useful for higher-quality answers and evaluation comparisons.
 
