@@ -9,8 +9,12 @@ References:
 
 from __future__ import annotations
 
+import contextlib
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 import numpy as np
 import psycopg2
@@ -111,6 +115,15 @@ class Retriever:
             raise RuntimeError("Failed to establish database connection")
         return self._conn
 
+    @contextlib.contextmanager
+    def _cursor(self) -> Generator[psycopg2.extensions.cursor, None, None]:
+        """Context manager: yields a cursor and always closes it on exit."""
+        cur = self._get_conn().cursor()
+        try:
+            yield cur
+        finally:
+            cur.close()
+
     def embed_query(self, question: str) -> list[float]:
         """Embed a user's question using the same model as ingestion (FR-13)."""
         embedding = self._model.encode(
@@ -131,13 +144,9 @@ class Retriever:
         Logs INFO when consistent, ERROR when a mismatch is detected. Skips
         the check when the database contains no embeddings yet (fresh install).
         """
-        conn = self._get_conn()
-        cur = conn.cursor()
-        try:
+        with self._cursor() as cur:
             cur.execute("SELECT vector_dims(embedding) FROM document_chunks LIMIT 1")
             row = cur.fetchone()
-        finally:
-            cur.close()
 
         if row is None:
             logger.info("embedding_consistency_check_skipped", reason="no_chunks_in_db")
@@ -176,9 +185,6 @@ class Retriever:
         # MMR has enough material to trade off relevance against diversity.
         candidate_k = min(top_k * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES)
 
-        conn = self._get_conn()
-        cur = conn.cursor()
-
         if ticker_filter:
             sql = """
                 SELECT chunk_id, ticker, filing_date, section_name,
@@ -201,11 +207,9 @@ class Retriever:
             """
             params = (query_embedding, query_embedding, candidate_k)
 
-        try:
+        with self._cursor() as cur:
             cur.execute(sql, params)
             rows = cur.fetchall()
-        finally:
-            cur.close()
 
         # Build (chunk, embedding_vector) pairs for MMR.
         # row[5] is the pgvector embedding (numpy array after register_vector).
@@ -243,9 +247,7 @@ class Retriever:
         offset: int = 0,
     ) -> tuple[list[tuple[Any, ...]], int]:
         """Return a page of ingested filings from ingestion_log (FR-19, FR-20)."""
-        conn = self._get_conn()
-        cur = conn.cursor()
-        try:
+        with self._cursor() as cur:
             if ticker:
                 cur.execute(
                     "SELECT COUNT(*) FROM ingestion_log WHERE ticker = %s",
@@ -275,6 +277,4 @@ class Retriever:
                     (limit, offset),
                 )
             rows = cur.fetchall()
-        finally:
-            cur.close()
         return rows, total

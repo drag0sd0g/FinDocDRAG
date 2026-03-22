@@ -16,7 +16,10 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 import aiohttp
 import structlog
@@ -62,6 +65,42 @@ class EdgarClient:
     def __post_init__(self) -> None:
         self._semaphore = asyncio.Semaphore(self.rate_limit_rps)
 
+    # ── Retry helper ─────────────────────────────────────────────
+
+    async def _with_retries(
+        self,
+        operation: Callable[[], Awaitable[Any]],
+        failure_value: Any,
+        operation_name: str,
+        **log_ctx: Any,
+    ) -> Any:
+        """Run an async operation with exponential-backoff retry.
+
+        Retries on aiohttp.ClientError up to max_retries times (backoff: 2^attempt
+        seconds: 2 s, 4 s, 8 s).  Any other exception causes an immediate return of
+        failure_value.  Returns failure_value after all retries are exhausted.
+        """
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                return await operation()
+            except aiohttp.ClientError as exc:
+                if attempt == self.max_retries:
+                    logger.error(f"{operation_name}_failed", **log_ctx, error=str(exc))
+                    return failure_value
+                wait = 2**attempt
+                logger.warning(
+                    f"{operation_name}_retry",
+                    **log_ctx,
+                    attempt=attempt,
+                    wait_seconds=wait,
+                    error=str(exc),
+                )
+                await asyncio.sleep(wait)
+            except Exception as exc:
+                logger.error(f"{operation_name}_failed", **log_ctx, error=str(exc))
+                return failure_value
+        return failure_value  # unreachable; keeps mypy happy
+
     # ── Search ───────────────────────────────────────────────────
 
     async def search_10k_filings(
@@ -83,54 +122,26 @@ class EdgarClient:
         }
         headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                t0 = time.perf_counter()
-                async with self._semaphore, session.get(
-                    EDGAR_SEARCH_URL, params=params, headers=headers
-                ) as resp:
-                    resp.raise_for_status()
-                    data: dict[str, Any] = await resp.json(content_type=None)
-                    await asyncio.sleep(1.0 / self.rate_limit_rps)
-                elapsed = time.perf_counter() - t0
-                EDGAR_REQUEST_DURATION.labels(ticker=ticker).observe(elapsed)
+        async def _do_search() -> list[dict[str, Any]]:
+            t0 = time.perf_counter()
+            async with self._semaphore, session.get(
+                EDGAR_SEARCH_URL, params=params, headers=headers
+            ) as resp:
+                resp.raise_for_status()
+                data: dict[str, Any] = await resp.json(content_type=None)
+                await asyncio.sleep(1.0 / self.rate_limit_rps)
+            elapsed = time.perf_counter() - t0
+            EDGAR_REQUEST_DURATION.labels(ticker=ticker).observe(elapsed)
+            hits: list[dict[str, Any]] = data.get("hits", {}).get("hits", [])
+            logger.info(
+                "edgar_search_complete",
+                ticker=ticker,
+                results_count=len(hits),
+                elapsed_ms=round(elapsed * 1000, 1),
+            )
+            return hits
 
-                hits: list[dict[str, Any]] = data.get("hits", {}).get("hits", [])
-                logger.info(
-                    "edgar_search_complete",
-                    ticker=ticker,
-                    results_count=len(hits),
-                    elapsed_ms=round(elapsed * 1000, 1),
-                )
-                return hits
-
-            except aiohttp.ClientError as exc:
-                if attempt == self.max_retries:
-                    logger.error(
-                        "edgar_search_failed",
-                        ticker=ticker,
-                        error=str(exc),
-                    )
-                    return []
-                wait = 2**attempt
-                logger.warning(
-                    "edgar_search_retry",
-                    ticker=ticker,
-                    attempt=attempt,
-                    wait_seconds=wait,
-                    error=str(exc),
-                )
-                await asyncio.sleep(wait)
-
-            except Exception as exc:
-                logger.error(
-                    "edgar_search_failed",
-                    ticker=ticker,
-                    error=str(exc),
-                )
-                return []
-
-        return []  # unreachable but keeps mypy happy
+        return await self._with_retries(_do_search, failure_value=[], operation_name="edgar_search", ticker=ticker)  # type: ignore[return-value,no-any-return]
 
     # ── Fetch full text ──────────────────────────────────────────
 
@@ -145,75 +156,47 @@ class EdgarClient:
         """
         headers = {"User-Agent": self.user_agent}
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                t0 = time.perf_counter()
-                chunks: list[bytes] = []
-                bytes_received = 0
-                last_log_bytes = 0
+        async def _do_fetch() -> str:
+            t0 = time.perf_counter()
+            byte_chunks: list[bytes] = []
+            bytes_received = 0
+            last_log_bytes = 0
 
-                async with self._semaphore, session.get(filing_url, headers=headers) as resp:
-                    resp.raise_for_status()
-                    content_length = resp.content_length  # may be None
-                    logger.info(
-                        "edgar_fetch_started_http",
-                        url=filing_url,
-                        content_length_bytes=content_length,
-                        content_length_mb=round(content_length / 1024 / 1024, 1) if content_length else None,
-                    )
-                    async for chunk in resp.content.iter_chunked(1024 * 64):  # 64 KB chunks
-                        chunks.append(chunk)
-                        bytes_received += len(chunk)
-                        if bytes_received - last_log_bytes >= _PROGRESS_LOG_INTERVAL:
-                            logger.info(
-                                "edgar_fetch_progress",
-                                url=filing_url,
-                                received_mb=round(bytes_received / 1024 / 1024, 1),
-                                total_mb=round(content_length / 1024 / 1024, 1) if content_length else None,
-                                elapsed_ms=round((time.perf_counter() - t0) * 1000, 1),
-                            )
-                            last_log_bytes = bytes_received
-                    await asyncio.sleep(1.0 / self.rate_limit_rps)
-
-                raw_bytes = b"".join(chunks)
-                elapsed = time.perf_counter() - t0
-                text = raw_bytes.decode("utf-8", errors="replace")
+            async with self._semaphore, session.get(filing_url, headers=headers) as resp:
+                resp.raise_for_status()
+                content_length = resp.content_length  # may be None
                 logger.info(
-                    "edgar_fetch_complete",
+                    "edgar_fetch_started_http",
                     url=filing_url,
-                    elapsed_ms=round(elapsed * 1000, 1),
-                    size_mb=round(len(raw_bytes) / 1024 / 1024, 1),
-                    throughput_mbps=round(len(raw_bytes) / 1024 / 1024 / elapsed, 2) if elapsed > 0 else None,
+                    content_length_bytes=content_length,
+                    content_length_mb=round(content_length / 1024 / 1024, 1) if content_length else None,
                 )
-                return text
+                async for chunk in resp.content.iter_chunked(1024 * 64):  # 64 KB chunks
+                    byte_chunks.append(chunk)
+                    bytes_received += len(chunk)
+                    if bytes_received - last_log_bytes >= _PROGRESS_LOG_INTERVAL:
+                        logger.info(
+                            "edgar_fetch_progress",
+                            url=filing_url,
+                            received_mb=round(bytes_received / 1024 / 1024, 1),
+                            total_mb=round(content_length / 1024 / 1024, 1) if content_length else None,
+                            elapsed_ms=round((time.perf_counter() - t0) * 1000, 1),
+                        )
+                        last_log_bytes = bytes_received
+                await asyncio.sleep(1.0 / self.rate_limit_rps)
 
-            except aiohttp.ClientError as exc:
-                if attempt == self.max_retries:
-                    logger.error(
-                        "edgar_fetch_failed",
-                        url=filing_url,
-                        error=str(exc),
-                    )
-                    return None
-                wait = 2**attempt
-                logger.warning(
-                    "edgar_fetch_retry",
-                    url=filing_url,
-                    attempt=attempt,
-                    wait_seconds=wait,
-                    error=str(exc),
-                )
-                await asyncio.sleep(wait)
+            raw_bytes = b"".join(byte_chunks)
+            elapsed = time.perf_counter() - t0
+            logger.info(
+                "edgar_fetch_complete",
+                url=filing_url,
+                elapsed_ms=round(elapsed * 1000, 1),
+                size_mb=round(len(raw_bytes) / 1024 / 1024, 1),
+                throughput_mbps=round(len(raw_bytes) / 1024 / 1024 / elapsed, 2) if elapsed > 0 else None,
+            )
+            return raw_bytes.decode("utf-8", errors="replace")
 
-            except Exception as exc:
-                logger.error(
-                    "edgar_fetch_failed",
-                    url=filing_url,
-                    error=str(exc),
-                )
-                return None
-
-        return None  # unreachable but keeps mypy happy
+        return await self._with_retries(_do_fetch, failure_value=None, operation_name="edgar_fetch", url=filing_url)  # type: ignore[return-value,no-any-return]
 
     # ── End-to-end per ticker ────────────────────────────────────
 

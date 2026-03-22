@@ -8,12 +8,15 @@ References:
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 import psycopg2
 import structlog
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from src.edgar_client import Filing
 
 logger = structlog.get_logger()
@@ -49,28 +52,30 @@ class IngestionDB:
             raise RuntimeError("Failed to establish database connection")
         return self._conn
 
+    @contextlib.contextmanager
+    def _cursor(self) -> Generator[psycopg2.extensions.cursor, None, None]:
+        """Context manager: yields a cursor and always closes it on exit."""
+        cur = self._get_conn().cursor()
+        try:
+            yield cur
+        finally:
+            cur.close()
+
     def is_already_ingested(self, accession_number: str) -> bool:
         """Return True if the accession number already exists in ingestion_log (FR-4)."""
-        conn = self._get_conn()
-        cur = conn.cursor()
-        try:
+        with self._cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM ingestion_log WHERE accession_number = %s",
                 (accession_number,),
             )
-            result = cur.fetchone()
-        finally:
-            cur.close()
-        return result is not None
+            return cur.fetchone() is not None
 
     def record_ingestion(self, filing: Filing) -> None:
         """Insert a new row into ingestion_log with status PUBLISHED.
 
         Uses ON CONFLICT DO NOTHING so concurrent or replayed calls are safe.
         """
-        conn = self._get_conn()
-        cur = conn.cursor()
-        try:
+        with self._cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO ingestion_log
@@ -88,8 +93,6 @@ class IngestionDB:
                     filing.source_url,
                 ),
             )
-        finally:
-            cur.close()
         logger.info(
             "ingestion_recorded",
             accession=filing.accession_number,

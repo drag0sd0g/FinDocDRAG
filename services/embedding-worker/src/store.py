@@ -8,6 +8,7 @@ References:
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 import psycopg2
@@ -16,6 +17,8 @@ from pgvector.psycopg2 import register_vector
 from psycopg2.extras import execute_values
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from src.chunker import Chunk
 
 logger = structlog.get_logger()
@@ -52,6 +55,20 @@ class ChunkStore:
             raise RuntimeError("Failed to establish database connection")
         return self._conn
 
+    @contextlib.contextmanager
+    def _transaction(self) -> Generator[psycopg2.extensions.cursor, None, None]:
+        """Context manager: yields a cursor, commits on success, rolls back on error."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            yield cur
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+
     def store_chunks(
         self,
         chunks: list[Chunk],
@@ -64,8 +81,6 @@ class ChunkStore:
         """
         if not chunks:
             return 0
-
-        conn = self._get_conn()
 
         # Build a single-statement batch INSERT using execute_values so that
         # cursor.rowcount reflects the total number of rows actually inserted
@@ -93,18 +108,11 @@ class ChunkStore:
             for chunk, emb in zip(chunks, embeddings, strict=True)
         ]
 
-        cur = conn.cursor()
-        try:
+        with self._transaction() as cur:
             execute_values(cur, query, rows)
             inserted = cur.rowcount
-            conn.commit()
-            logger.info("chunks_stored", count=inserted, total=len(chunks))
-            return int(inserted)
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
+        logger.info("chunks_stored", count=inserted, total=len(chunks))
+        return int(inserted)
 
     def update_ingestion_status(
         self,
@@ -112,9 +120,7 @@ class ChunkStore:
         chunk_count: int,
     ) -> None:
         """Update the ingestion_log row to EMBEDDED status with chunk count."""
-        conn = self._get_conn()
-        cur = conn.cursor()
-        try:
+        with self._transaction() as cur:
             cur.execute(
                 """
                 UPDATE ingestion_log
@@ -123,9 +129,3 @@ class ChunkStore:
                 """,
                 (chunk_count, accession_number),
             )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()

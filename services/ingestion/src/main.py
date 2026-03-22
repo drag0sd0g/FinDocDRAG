@@ -176,6 +176,49 @@ async def ready() -> dict[str, str]:
     return {"status": "ready"}
 
 
+# ── Ingestion helpers ────────────────────────────────────────────
+
+def _resolve_tickers(body: IngestRequest | None) -> list[dict[str, Any]]:
+    """Return the list of tickers to process from the request body or config file."""
+    if body is not None and body.tickers:
+        return [{"symbol": t, "name": t} for t in body.tickers]
+    return load_tickers(settings.tickers_config_path)
+
+
+def _publish_single_filing(
+    filing: Any,
+    symbol: str,
+    db: Any,
+    producer: Any,
+) -> str:
+    """Attempt to publish one filing.  Returns 'published', 'skipped', or raises."""
+    if db.is_already_ingested(filing.accession_number):
+        logger.info(
+            "filing_skipped_duplicate",
+            accession=filing.accession_number,
+            ticker=symbol,
+        )
+        return "skipped"
+
+    logger.info(
+        "filing_publishing",
+        ticker=symbol,
+        accession=filing.accession_number,
+        filing_date=filing.filing_date,
+    )
+    t_publish = time.perf_counter()
+    if not producer.publish_filing(filing):
+        return "skipped"
+    db.record_ingestion(filing)
+    logger.info(
+        "filing_published",
+        ticker=symbol,
+        accession=filing.accession_number,
+        elapsed_ms=round((time.perf_counter() - t_publish) * 1000, 1),
+    )
+    return "published"
+
+
 # ── Ingestion endpoint (TDD Section 5.2.1) ──────────────────────
 
 @app.post("/v1/ingest", response_model=IngestResponse)
@@ -188,14 +231,7 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
     if _edgar_client is None or _kafka_producer is None or _db is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    # Determine which tickers to process
-    if body is not None and body.tickers:
-        ticker_list: list[dict[str, Any]] = [
-            {"symbol": t, "name": t} for t in body.tickers
-        ]
-    else:
-        ticker_list = load_tickers(settings.tickers_config_path)
-
+    ticker_list = _resolve_tickers(body)
     if not ticker_list:
         raise HTTPException(status_code=400, detail="No tickers to ingest")
 
@@ -222,38 +258,13 @@ async def ingest(body: IngestRequest | None = None) -> IngestResponse:
                 )
 
                 for filing in filings:
-                    # Deduplication check (FR-4): skip if already ingested.
-                    if _db.is_already_ingested(filing.accession_number):
+                    result = _publish_single_filing(filing, symbol, _db, _kafka_producer)
+                    if result == "published":
+                        filings_published += 1
+                        FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="success").inc()
+                    else:
                         filings_skipped += 1
                         FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="skipped").inc()
-                        logger.info(
-                            "filing_skipped_duplicate",
-                            accession=filing.accession_number,
-                            ticker=symbol,
-                        )
-                        continue
-
-                    logger.info(
-                        "filing_publishing",
-                        ticker=symbol,
-                        accession=filing.accession_number,
-                        filing_date=filing.filing_date,
-                    )
-                    t_publish = time.perf_counter()
-                    published = _kafka_producer.publish_filing(filing)
-                    if not published:
-                        filings_skipped += 1
-                        FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="skipped").inc()
-                        continue
-                    _db.record_ingestion(filing)
-                    logger.info(
-                        "filing_published",
-                        ticker=symbol,
-                        accession=filing.accession_number,
-                        elapsed_ms=round((time.perf_counter() - t_publish) * 1000, 1),
-                    )
-                    filings_published += 1
-                    FILINGS_FETCHED_TOTAL.labels(ticker=symbol, status="success").inc()
 
                 tickers_processed.append(symbol)
                 logger.info(

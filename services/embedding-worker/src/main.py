@@ -233,13 +233,11 @@ def _update_kafka_lag(consumer: Consumer) -> None:
         pass  # lag reporting is best-effort
 
 
-# ── Kafka consumer loop (runs in a background thread) ────────────
+# ── Kafka client factories ────────────────────────────────────────
 
-def _consume_loop() -> None:
-    """Poll filings.raw, process each message, commit offset."""
-    global _embedder, _store  # noqa: PLW0603
-
-    consumer = Consumer(
+def _create_consumer() -> Consumer:
+    """Create and return a configured Kafka consumer."""
+    return Consumer(
         {
             "bootstrap.servers": KAFKA_BOOTSTRAP,
             "group.id": "embedding-worker",
@@ -250,8 +248,92 @@ def _consume_loop() -> None:
             "session.timeout.ms": _KAFKA_SESSION_TIMEOUT_MS,
         }
     )
-    producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 
+
+def _create_producer() -> Producer:
+    """Create and return a configured Kafka producer."""
+    return Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
+
+
+# ── Message parsing ───────────────────────────────────────────────
+
+def _parse_kafka_message(msg: Any) -> dict[str, Any]:
+    """Decode and validate a Kafka message payload.
+
+    Returns the payload dict.  Raises on malformed JSON or missing fields
+    so the caller can route straight to the DLQ without retrying.
+    """
+    payload: dict[str, Any] = json.loads(msg.value().decode("utf-8"))
+    # Validate required fields are present
+    for field in ("accession_number", "ticker", "filing_date", "raw_text"):
+        if field not in payload:
+            raise KeyError(f"Missing required field: {field!r}")
+    return payload
+
+
+# ── Per-message retry loop ────────────────────────────────────────
+
+def _process_with_retries(
+    payload: dict[str, Any],
+    embedder: Embedder,
+    store: ChunkStore,
+    producer: Producer,
+) -> tuple[list[Chunk], Exception | None]:
+    """Attempt the full filing pipeline up to MAX_RETRIES+1 times.
+
+    Returns (chunks, None) on success, or ([], last_exception) after all
+    retries are exhausted.  Sleeps between attempts using interruptible
+    sleep so shutdown is not delayed.
+    """
+    accession = payload["accession_number"]
+    ticker = payload["ticker"]
+    last_exc: Exception | None = None
+    chunks: list[Chunk] = []
+
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            chunks = _process_filing(
+                accession=accession,
+                ticker=ticker,
+                filing_date=payload["filing_date"],
+                raw_text=payload["raw_text"],
+                embedder=embedder,
+                store=store,
+                producer=producer,
+            )
+            return chunks, None  # success
+        except Exception as exc:
+            last_exc = exc
+            if attempt < MAX_RETRIES:
+                sleep_s = 2 ** (attempt + 1)  # 2 s, 4 s, 8 s
+                logger.warning(
+                    "processing_attempt_failed",
+                    attempt=attempt + 1,
+                    max_retries=MAX_RETRIES,
+                    sleep_s=sleep_s,
+                    accession=accession,
+                    error=str(exc),
+                )
+                _interruptible_sleep(sleep_s)
+            else:
+                logger.error(
+                    "processing_failed_all_retries",
+                    accession=accession,
+                    ticker=ticker,
+                    error=str(exc),
+                )
+
+    return [], last_exc
+
+
+# ── Kafka consumer loop (runs in a background thread) ────────────
+
+def _consume_loop() -> None:
+    """Poll filings.raw, process each message, commit offset."""
+    global _embedder, _store  # noqa: PLW0603
+
+    consumer = _create_consumer()
+    producer = _create_producer()
     consumer.subscribe([TOPIC_RAW])
     logger.info("consumer_started", topic=TOPIC_RAW)
 
@@ -269,63 +351,25 @@ def _consume_loop() -> None:
         # Malformed messages cannot be retried — route straight to DLQ.
         payload: dict[str, Any] | None = None
         try:
-            payload = json.loads(msg.value().decode("utf-8"))
-            accession = payload["accession_number"]
-            ticker = payload["ticker"]
-            filing_date = payload["filing_date"]
-            raw_text = payload["raw_text"]
+            payload = _parse_kafka_message(msg)
         except Exception as parse_exc:
             logger.error("message_parse_failed", error=str(parse_exc))
             _publish_to_dlq(producer, msg.key(), str(parse_exc))
             consumer.commit(msg)
             continue
 
+        accession = payload["accession_number"]
+        ticker = payload["ticker"]
         logger.info("processing_filing", accession=accession, ticker=ticker)
 
         # ── Step 2: Process with retries (ADR-010) ────────────────────
-        # Attempt the full pipeline up to MAX_RETRIES + 1 times, sleeping
-        # 2^(attempt+1) seconds between failures: 2 s, 4 s, 8 s → ~14 s max.
-        last_exc: Exception | None = None
-        chunks: list[Chunk] = []
+        if _embedder is None or _store is None:
+            logger.error("worker_not_initialized", accession=accession)
+            _publish_to_dlq(producer, msg.key(), "Worker not initialized", payload=payload)
+            consumer.commit(msg)
+            continue
 
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                if _embedder is None:
-                    raise RuntimeError("Embedder not initialized")
-                if _store is None:
-                    raise RuntimeError("Store not initialized")
-                chunks = _process_filing(
-                    accession=accession,
-                    ticker=ticker,
-                    filing_date=filing_date,
-                    raw_text=raw_text,
-                    embedder=_embedder,
-                    store=_store,
-                    producer=producer,
-                )
-                last_exc = None
-                break  # success (or empty chunks — not an error)
-
-            except Exception as exc:
-                last_exc = exc
-                if attempt < MAX_RETRIES:
-                    sleep_s = 2 ** (attempt + 1)  # 2 s, 4 s, 8 s
-                    logger.warning(
-                        "processing_attempt_failed",
-                        attempt=attempt + 1,
-                        max_retries=MAX_RETRIES,
-                        sleep_s=sleep_s,
-                        accession=accession,
-                        error=str(exc),
-                    )
-                    _interruptible_sleep(sleep_s)
-                else:
-                    logger.error(
-                        "processing_failed_all_retries",
-                        accession=accession,
-                        ticker=ticker,
-                        error=str(exc),
-                    )
+        chunks, last_exc = _process_with_retries(payload, _embedder, _store, producer)
 
         # ── Step 3: DLQ if all retries exhausted (ADR-010, TDD 7.3) ──
         if last_exc is not None:

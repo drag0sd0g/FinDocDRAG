@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from src.llm.backend import LLMBackend
+    from src.llm.backend import LLMBackend, LLMResponse
     from src.rag.retriever import Retriever
 
 from src.metrics import (
@@ -37,6 +37,21 @@ class RAGGenerator:
     def __init__(self, retriever: Retriever, llm: LLMBackend) -> None:
         self._retriever = retriever
         self._llm = llm
+
+    def _record_llm_metrics(
+        self,
+        llm_response: LLMResponse,
+        backend_name: str,
+        generation_ms: float,
+    ) -> None:
+        """Record LLM duration and token usage metrics."""
+        LLM_DURATION.labels(backend=backend_name).observe(generation_ms / 1000.0)
+        LLM_TOKENS_USED.labels(backend=backend_name, type="prompt").inc(
+            llm_response.prompt_tokens
+        )
+        LLM_TOKENS_USED.labels(backend=backend_name, type="completion").inc(
+            llm_response.completion_tokens
+        )
 
     async def answer(
         self,
@@ -97,18 +112,7 @@ class RAGGenerator:
                 llm_response = await self._llm.generate(prompt)
                 answer_text = llm_response.text
                 generation_ms = (time.perf_counter() - gen_start) * 1000
-
-                # Record LLM duration metric
-                backend_name = self._llm.model_name
-                LLM_DURATION.labels(backend=backend_name).observe(generation_ms / 1000.0)
-
-                # Record LLM token usage
-                LLM_TOKENS_USED.labels(backend=backend_name, type="prompt").inc(
-                    llm_response.prompt_tokens
-                )
-                LLM_TOKENS_USED.labels(backend=backend_name, type="completion").inc(
-                    llm_response.completion_tokens
-                )
+                self._record_llm_metrics(llm_response, self._llm.model_name, generation_ms)
 
             except Exception as exc:
                 # Graceful degradation (TDD Section 7.4):

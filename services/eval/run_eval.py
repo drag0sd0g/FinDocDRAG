@@ -191,84 +191,72 @@ async def collect_responses(
 # ── ragas evaluation ──────────────────────────────────────────────────────────
 
 
-def compute_ragas_metrics(
-    responses: list[dict[str, Any]],
-) -> tuple[dict[str, list[float]], list[str]]:
-    """Compute ragas metrics and return (per-sample scores dict, metric names).
+def _resolve_ragas_llm() -> tuple[Any, str]:
+    """Return (ragas_llm, judge_label) based on available API keys.
 
-    Requires OPENAI_API_KEY to be set — ragas uses an OpenAI LLM as judge for
-    faithfulness, context_precision, and answer_relevancy.  On memory-
-    constrained machines this is the recommended path because all LLM compute
-    is offloaded to the OpenAI API.
+    Priority: ANTHROPIC_API_KEY → OPENAI_API_KEY → Ollama (local fallback).
+    Returns (None, "OpenAI (auto)") when OPENAI_API_KEY is set, since ragas
+    picks that up automatically without an explicit LLM object.
+    Raises ImportError (with a logger.error) when no option is available.
     """
-    try:
-        from ragas import EvaluationDataset, SingleTurnSample, evaluate
-        from ragas.metrics import AnswerRelevancy, ContextPrecision, Faithfulness
-    except ImportError as exc:
-        logger.error("Cannot import ragas: %s", exc)
-        logger.error("Run:  pip install -r requirements.txt")
-        return {}, []
-
-    valid = [r for r in responses if r.get("answer") and not r.get("error")]
-    if not valid:
-        logger.error(
-            "No successful Query API responses to evaluate. "
-            "Ensure the stack is running and filings have been ingested."
-        )
-        return {}, []
-
-    # Resolve which LLM to use as ragas judge.
-    # Priority: ANTHROPIC_API_KEY → OPENAI_API_KEY → Ollama (local fallback)
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
     ollama_url = os.getenv("EVAL_OLLAMA_URL", "http://localhost:11434")
     ollama_model = os.getenv("EVAL_OLLAMA_MODEL", "mistral:7b")
-
-    ragas_llm = None
-    judge_label = ""
 
     if anthropic_key:
         try:
             from langchain_anthropic import ChatAnthropic
             from ragas.llms import LangchainLLMWrapper
 
-            # claude-haiku-4-5 is cost-effective for evaluation scoring
             claude_judge_model = os.getenv("CLAUDE_JUDGE_MODEL", "claude-haiku-4-5")
             ragas_llm = LangchainLLMWrapper(
                 ChatAnthropic(model=claude_judge_model, api_key=anthropic_key)
             )
-            judge_label = f"Anthropic/{claude_judge_model}"
+            return ragas_llm, f"Anthropic/{claude_judge_model}"
         except ImportError:
             logger.warning(
                 "langchain-anthropic not installed — trying next option. "
                 "Run: pip install langchain-anthropic"
             )
 
-    if ragas_llm is None and openai_key:
-        # ragas picks up OPENAI_API_KEY automatically; leave ragas_llm as None
-        judge_label = "OpenAI (auto)"
+    if openai_key:
+        # ragas picks up OPENAI_API_KEY automatically; no explicit LLM object needed
+        return None, "OpenAI (auto)"
 
-    if ragas_llm is None and not openai_key:
-        # Fallback: local Ollama (heavy on RAM — stop other services first)
-        try:
-            from langchain_community.chat_models import ChatOllama
-            from ragas.llms import LangchainLLMWrapper
+    # Fallback: local Ollama (heavy on RAM — stop other services first)
+    try:
+        from langchain_community.chat_models import ChatOllama
+        from ragas.llms import LangchainLLMWrapper
 
-            ragas_llm = LangchainLLMWrapper(
-                ChatOllama(model=ollama_model, base_url=ollama_url)
-            )
-            judge_label = f"Ollama/{ollama_model} (local)"
-            logger.warning(
-                "No API key found — falling back to local Ollama (%s) for ragas judge. "
-                "RAM usage will be high. Set ANTHROPIC_API_KEY for a lighter alternative.",
-                ollama_model,
-            )
-        except ImportError:
-            logger.error(
-                "langchain-community not installed and no API key found. "
-                "Run: pip install langchain-community  OR  export ANTHROPIC_API_KEY=sk-ant-..."
-            )
-            return {}, []
+        ragas_llm = LangchainLLMWrapper(
+            ChatOllama(model=ollama_model, base_url=ollama_url)
+        )
+        logger.warning(
+            "No API key found — falling back to local Ollama (%s) for ragas judge. "
+            "RAM usage will be high. Set ANTHROPIC_API_KEY for a lighter alternative.",
+            ollama_model,
+        )
+        return ragas_llm, f"Ollama/{ollama_model} (local)"
+    except ImportError:
+        logger.error(
+            "langchain-community not installed and no API key found. "
+            "Run: pip install langchain-community  OR  export ANTHROPIC_API_KEY=sk-ant-..."
+        )
+        raise
+
+
+def _build_ragas_dataset(
+    valid: list[dict[str, Any]],
+    ragas_llm: Any,
+    judge_label: str,
+) -> tuple[Any, list[Any], list[str]]:
+    """Build a ragas EvaluationDataset and metric list from valid responses.
+
+    Returns (dataset, metrics, metric_names).
+    """
+    from ragas import EvaluationDataset, SingleTurnSample
+    from ragas.metrics import AnswerRelevancy, ContextPrecision, Faithfulness
 
     logger.info(
         "Building ragas EvaluationDataset from %d valid samples (judge: %s) …",
@@ -286,12 +274,10 @@ def compute_ragas_metrics(
         )
         for r in valid
     ]
-
     dataset = EvaluationDataset(samples=samples)
 
-    # Inject judge LLM into each metric when explicitly configured
     if ragas_llm is not None:
-        metrics = [
+        metrics: list[Any] = [
             AnswerRelevancy(llm=ragas_llm),
             Faithfulness(llm=ragas_llm),
             ContextPrecision(llm=ragas_llm),
@@ -301,16 +287,14 @@ def compute_ragas_metrics(
         metrics = [AnswerRelevancy(), Faithfulness(), ContextPrecision()]
 
     metric_names = ["answer_relevancy", "faithfulness", "context_precision"]
+    return dataset, metrics, metric_names
 
-    logger.info(
-        "Running ragas evaluation (metrics: %s) …", ", ".join(metric_names)
-    )
-    try:
-        result = evaluate(dataset=dataset, metrics=metrics)
-    except Exception as exc:
-        logger.error("ragas evaluate() failed: %s", exc)
-        return {}, []
 
+def _extract_metric_scores(
+    result: Any,
+    metric_names: list[str],
+) -> dict[str, list[float]]:
+    """Extract per-sample scores from a ragas Result object into a plain dict."""
     result_df = result.to_pandas()
     scores: dict[str, list[float]] = {}
     for name in metric_names:
@@ -318,8 +302,48 @@ def compute_ragas_metrics(
             scores[name] = result_df[name].tolist()
         else:
             logger.warning("Metric '%s' not found in ragas output.", name)
+    return scores
 
-    return scores, metric_names
+
+def compute_ragas_metrics(
+    responses: list[dict[str, Any]],
+) -> tuple[dict[str, list[float]], list[str]]:
+    """Compute ragas metrics and return (per-sample scores dict, metric names).
+
+    Selects a judge LLM via _resolve_ragas_llm() (Anthropic → OpenAI → Ollama),
+    builds the EvaluationDataset, runs ragas evaluate(), and returns per-sample
+    scores alongside the metric name list.
+    """
+    try:
+        from ragas import evaluate
+    except ImportError as exc:
+        logger.error("Cannot import ragas: %s", exc)
+        logger.error("Run:  pip install -r requirements.txt")
+        return {}, []
+
+    valid = [r for r in responses if r.get("answer") and not r.get("error")]
+    if not valid:
+        logger.error(
+            "No successful Query API responses to evaluate. "
+            "Ensure the stack is running and filings have been ingested."
+        )
+        return {}, []
+
+    try:
+        ragas_llm, judge_label = _resolve_ragas_llm()
+    except ImportError:
+        return {}, []
+
+    dataset, metrics, metric_names = _build_ragas_dataset(valid, ragas_llm, judge_label)
+
+    logger.info("Running ragas evaluation (metrics: %s) …", ", ".join(metric_names))
+    try:
+        result = evaluate(dataset=dataset, metrics=metrics)
+    except Exception as exc:
+        logger.error("ragas evaluate() failed: %s", exc)
+        return {}, []
+
+    return _extract_metric_scores(result, metric_names), metric_names
 
 
 # ── Result persistence ────────────────────────────────────────────────────────
