@@ -1,5 +1,6 @@
 # Ingestion Service Dev Dependencies
 mypy
+types-PyYAML
 pytest
 pytest-asyncio
 pytest-cov
