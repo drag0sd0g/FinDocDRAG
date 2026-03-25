@@ -259,7 +259,7 @@
     ]
   },
   "time": { "from": "now-1h", "to": "now" },
-  "title": "FinDocRAG — Query Performance",
+  "title": "FinDocDRAG — Query Performance",
   "uid": "findoc-query",
   "version": 1
 }

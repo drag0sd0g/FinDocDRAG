@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "FinDocRAG service overview – query latency, ingestion throughput, and embedding pipeline health",
+  "description": "FinDocDRAG service overview – query latency, ingestion throughput, and embedding pipeline health",
   "editable": true,
   "graphTooltip": 1,
   "id": null,
@@ -407,7 +407,7 @@
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "FinDocRAG Overview",
+  "title": "FinDocDRAG Overview",
   "uid": "findoc-rag-overview",
   "version": 1
 }

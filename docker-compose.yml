@@ -1,5 +1,5 @@
 # ============================================================
-# FinDocRAG — Full Local Stack
+# FinDocDRAG — Full Local Stack
 # Usage: docker compose up
 # See: docs/technical-design-document.md Section 10.2
 # ============================================================
@@ -11,15 +11,15 @@ services:
     image: pgvector/pgvector:pg16
     container_name: findoc-postgres
     environment:
-      POSTGRES_DB: findocrag
-      POSTGRES_USER: findocrag
+      POSTGRES_DB: findocdrag
+      POSTGRES_USER: findocdrag
       POSTGRES_PASSWORD: changeme
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U findocrag -d findocrag"]
+      test: ["CMD-SHELL", "pg_isready -U findocdrag -d findocdrag"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -34,8 +34,8 @@ services:
     environment:
       PGHOST: postgres
       PGPORT: "5432"
-      PGDATABASE: findocrag
-      PGUSER: findocrag
+      PGDATABASE: findocdrag
+      PGUSER: findocdrag
       PGPASSWORD: changeme
     volumes:
       - ./db/migrations:/migrations:ro
@@ -162,11 +162,11 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: findocrag
-      POSTGRES_USER: findocrag
+      POSTGRES_DB: findocdrag
+      POSTGRES_USER: findocdrag
       POSTGRES_PASSWORD: changeme
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      EDGAR_USER_AGENT: "${EDGAR_USER_AGENT:-FinDocRAG findocrag@example.com}"
+      EDGAR_USER_AGENT: "${EDGAR_USER_AGENT:-FinDocDRAG findocdrag@example.com}"
       EDGAR_RATE_LIMIT_RPS: "10"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     ports:
@@ -198,8 +198,8 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: findocrag
-      POSTGRES_USER: findocrag
+      POSTGRES_DB: findocdrag
+      POSTGRES_USER: findocdrag
       POSTGRES_PASSWORD: changeme
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EMBEDDING_MODEL: "sentence-transformers/all-MiniLM-L6-v2"
@@ -230,8 +230,8 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
-      POSTGRES_DB: findocrag
-      POSTGRES_USER: findocrag
+      POSTGRES_DB: findocdrag
+      POSTGRES_USER: findocdrag
       POSTGRES_PASSWORD: changeme
       LLM_BACKEND: "${LLM_BACKEND:-ollama}"
       OLLAMA_URL: "http://ollama:11434"

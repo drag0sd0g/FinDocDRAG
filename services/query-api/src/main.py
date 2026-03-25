@@ -49,11 +49,11 @@ from src.rag.retriever import Retriever
 # ── Configuration ────────────────────────────────────────────────
 
 POSTGRES_DSN = (
-    f"postgresql://{os.getenv('POSTGRES_USER', 'findocrag')}"
+    f"postgresql://{os.getenv('POSTGRES_USER', 'findocdrag')}"
     f":{os.getenv('POSTGRES_PASSWORD', 'changeme')}"
     f"@{os.getenv('POSTGRES_HOST', 'postgres')}"
     f":{os.getenv('POSTGRES_PORT', '5432')}"
-    f"/{os.getenv('POSTGRES_DB', 'findocrag')}"
+    f"/{os.getenv('POSTGRES_DB', 'findocdrag')}"
 )
 LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")

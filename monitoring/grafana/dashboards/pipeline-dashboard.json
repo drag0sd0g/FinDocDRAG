@@ -219,7 +219,7 @@
     ]
   },
   "time": { "from": "now-1h", "to": "now" },
-  "title": "FinDocRAG — Ingestion & Embedding Pipeline",
+  "title": "FinDocDRAG — Ingestion & Embedding Pipeline",
   "uid": "findoc-pipeline",
   "version": 1
 }

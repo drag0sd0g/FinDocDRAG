@@ -1,5 +1,5 @@
 # ============================================================
-# FinDocRAG — CI Pipeline
+# FinDocDRAG — CI Pipeline
 # See: docs/technical-design-document.md Section 10.3
 # Triggers: every push and pull request
 # ============================================================

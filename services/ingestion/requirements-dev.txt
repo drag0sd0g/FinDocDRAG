@@ -1,0 +1,6 @@
+# Ingestion Service Dev Dependencies
+mypy
+pytest
+pytest-asyncio
+pytest-cov
+httpx

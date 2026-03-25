@@ -42,11 +42,11 @@ from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 # ── Configuration ─────────────────────────────────────────────────
 
 POSTGRES_DSN = (
-    f"postgresql://{os.getenv('POSTGRES_USER', 'findocrag')}"
+    f"postgresql://{os.getenv('POSTGRES_USER', 'findocdrag')}"
     f":{os.getenv('POSTGRES_PASSWORD', 'changeme')}"
     f"@{os.getenv('POSTGRES_HOST', 'postgres')}"
     f":{os.getenv('POSTGRES_PORT', '5432')}"
-    f"/{os.getenv('POSTGRES_DB', 'findocrag')}"
+    f"/{os.getenv('POSTGRES_DB', 'findocdrag')}"
 )
 PUSHGATEWAY_URL: str | None = os.getenv("PUSHGATEWAY_URL")
 DRIFT_THRESHOLD = float(os.getenv("DRIFT_THRESHOLD", "0.15"))

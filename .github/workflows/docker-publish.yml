@@ -1,5 +1,5 @@
 # ============================================================
-# FinDocRAG — Docker Publish Pipeline
+# FinDocDRAG — Docker Publish Pipeline
 # See: docs/technical-design-document.md Section 10.3
 # Triggers: push to main
 # ============================================================

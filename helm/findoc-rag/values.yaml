@@ -1,5 +1,5 @@
 # ============================================================
-# FinDocRAG Helm Values
+# FinDocDRAG Helm Values
 # See: docs/technical-design-document.md Section 10.4
 # ============================================================
 
@@ -14,8 +14,8 @@ postgresql:
     size: 10Gi
     storageClassName: "" # Use cluster default
   credentials:
-    database: findocrag
-    username: findocrag
+    database: findocdrag
+    username: findocdrag
     password: changeme # Override in production via --set or sealed-secret
   resources:
     requests:
@@ -65,7 +65,7 @@ ingestion:
   image: ghcr.io/drag0sd0g/findoc-rag/ingestion:4bd67ff
   replicas: 1
   port: 8001
-  edgarUserAgent: "FinDocRAG findocrag@example.com"
+  edgarUserAgent: "FinDocDRAG findocdrag@example.com"
   edgarRateLimitRps: "10"
   logLevel: INFO
   resources:

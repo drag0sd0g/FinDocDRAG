@@ -24,15 +24,15 @@ class Settings(BaseSettings):
     # --- PostgreSQL ---
     postgres_host: str = "postgres"
     postgres_port: int = 5432
-    postgres_db: str = "findocrag"
-    postgres_user: str = "findocrag"
+    postgres_db: str = "findocdrag"
+    postgres_user: str = "findocdrag"
     postgres_password: str = "changeme"
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = "kafka:9092"
 
     # --- SEC EDGAR ---
-    edgar_user_agent: str = "FinDocRAG findocrag@example.com"
+    edgar_user_agent: str = "FinDocDRAG findocdrag@example.com"
     edgar_rate_limit_rps: int = 10
 
     # --- Logging ---

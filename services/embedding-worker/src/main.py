@@ -48,11 +48,11 @@ from src.store import ChunkStore
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 POSTGRES_DSN = (
-    f"postgresql://{os.getenv('POSTGRES_USER', 'findocrag')}"
+    f"postgresql://{os.getenv('POSTGRES_USER', 'findocdrag')}"
     f":{os.getenv('POSTGRES_PASSWORD', 'changeme')}"
     f"@{os.getenv('POSTGRES_HOST', 'postgres')}"
     f":{os.getenv('POSTGRES_PORT', '5432')}"
-    f"/{os.getenv('POSTGRES_DB', 'findocrag')}"
+    f"/{os.getenv('POSTGRES_DB', 'findocdrag')}"
 )
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

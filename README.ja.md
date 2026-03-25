@@ -33,8 +33,8 @@ API Client  <-->  Query API  <-->  Ollama / OpenAI / Claude              |
 1. リポジトリをクローンし、環境テンプレートをコピーします。
 
 ```bash
-git clone https://github.com/drag0sd0g/FinDocRAG.git
-cd FinDocRAG
+git clone https://github.com/drag0sd0g/FinDocDRAG.git
+cd FinDocDRAG
 cp .env.example .env
 ```
 
@@ -273,8 +273,8 @@ queryApi:
 # PostgreSQL 認証情報
 kubectl create secret generic findoc-prod-postgresql \
   --namespace findoc-rag \
-  --from-literal=POSTGRES_DB=findocrag \
-  --from-literal=POSTGRES_USER=findocrag \
+  --from-literal=POSTGRES_DB=findocdrag \
+  --from-literal=POSTGRES_USER=findocdrag \
   --from-literal=POSTGRES_PASSWORD="<strong-password>"
 
 # LLM API キー（必要なキーのみ）
@@ -360,7 +360,7 @@ make helm-teardown
 
 | 変数                      | デフォルト                        | 説明                                                   |
 | ------------------------- | --------------------------------- | ------------------------------------------------------ |
-| `EDGAR_USER_AGENT`        | `FinDocRAG findocrag@example.com` | SEC が要求する識別文字列                               |
+| `EDGAR_USER_AGENT`        | `FinDocDRAG findocdrag@example.com` | SEC が要求する識別文字列                               |
 | `EDGAR_RATE_LIMIT_RPS`    | `10`                              | EDGAR API の最大リクエスト数/秒（SEC の制限は 10 r/s） |
 | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092`                      | Embedding Worker が使用する Kafka ブローカーアドレス   |
 
@@ -370,8 +370,8 @@ make helm-teardown
 | ------------------- | ----------- | -------------------------------------------------- |
 | `POSTGRES_HOST`     | `postgres`  | PostgreSQL ホスト名                                |
 | `POSTGRES_PORT`     | `5432`      | PostgreSQL ポート                                  |
-| `POSTGRES_DB`       | `findocrag` | データベース名                                     |
-| `POSTGRES_USER`     | `findocrag` | データベースユーザー                               |
+| `POSTGRES_DB`       | `findocdrag` | データベース名                                     |
+| `POSTGRES_USER`     | `findocdrag` | データベースユーザー                               |
 | `POSTGRES_PASSWORD` | `changeme`  | データベースパスワード（本番環境では変更すること） |
 
 **オブザーバビリティ**

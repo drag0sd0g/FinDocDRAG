@@ -487,22 +487,22 @@ class TestConfig:
 
     def test_settings_defaults(self) -> None:
         s = Settings()
-        assert s.postgres_db == "findocrag"
+        assert s.postgres_db == "findocdrag"
         assert s.kafka_bootstrap_servers == "kafka:9092"
         assert s.edgar_rate_limit_rps == 10
 
     def test_postgres_dsn(self) -> None:
         s = Settings()
         assert s.postgres_dsn.startswith("postgresql://")
-        assert "findocrag" in s.postgres_dsn
+        assert "findocdrag" in s.postgres_dsn
 
     def test_settings_all_defaults(self) -> None:
         s = Settings()
         assert s.postgres_host == "postgres"
         assert s.postgres_port == 5432
-        assert s.postgres_user == "findocrag"
+        assert s.postgres_user == "findocdrag"
         assert s.postgres_password == "changeme"
-        assert s.edgar_user_agent == "FinDocRAG findocrag@example.com"
+        assert s.edgar_user_agent == "FinDocDRAG findocdrag@example.com"
         assert s.log_level == "INFO"
         assert s.tickers_config_path == "config/tickers.yml"
 

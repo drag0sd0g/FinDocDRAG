@@ -1,5 +1,5 @@
 # ============================================================
-# FinDocRAG — Makefile
+# FinDocDRAG — Makefile
 # See: docs/technical-design-document.md Section 10.5
 # ============================================================
 
@@ -9,15 +9,11 @@
 
 setup:  ## Create virtual environments and install dependencies
 	@echo "==> Setting up ingestion service..."
-	cd services/ingestion && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+	cd services/ingestion && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 	@echo "==> Setting up embedding worker..."
-	cd services/embedding-worker && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+	cd services/embedding-worker && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 	@echo "==> Setting up query API..."
-	cd services/query-api && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
-	@echo "==> Installing test dependencies..."
-	cd services/ingestion && .venv/bin/pip install pytest pytest-asyncio pytest-cov httpx
-	cd services/embedding-worker && .venv/bin/pip install pytest pytest-asyncio pytest-cov numpy httpx
-	cd services/query-api && .venv/bin/pip install pytest pytest-asyncio pytest-cov numpy httpx
+	cd services/query-api && python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 	@echo "==> Setup complete."
 
 test:  ## Run pytest for all services

@@ -1,4 +1,4 @@
--- FinDocRAG Database Schema
+-- FinDocDRAG Database Schema
 -- See: docs/technical-design-document.md Section 5.3
 
 -- Enable pgvector extension

@@ -1,0 +1,7 @@
+# Embedding Worker Dev Dependencies
+mypy
+pytest
+pytest-asyncio
+pytest-cov
+numpy
+httpx

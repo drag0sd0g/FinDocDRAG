@@ -33,8 +33,8 @@ API Client  <-->  Query API  <-->  Ollama / OpenAI / Claude              |
 1. Clone the repository and copy the environment template:
 
 ```bash
-git clone https://github.com/drag0sd0g/FinDocRAG.git
-cd FinDocRAG
+git clone https://github.com/drag0sd0g/FinDocDRAG.git
+cd FinDocDRAG
 cp .env.example .env
 ```
 
@@ -273,8 +273,8 @@ queryApi:
 # PostgreSQL credentials
 kubectl create secret generic findoc-prod-postgresql \
   --namespace findoc-rag \
-  --from-literal=POSTGRES_DB=findocrag \
-  --from-literal=POSTGRES_USER=findocrag \
+  --from-literal=POSTGRES_DB=findocdrag \
+  --from-literal=POSTGRES_USER=findocdrag \
   --from-literal=POSTGRES_PASSWORD="<strong-password>"
 
 # LLM API keys (only the key you need)
@@ -360,7 +360,7 @@ All configuration is driven by environment variables. See `.env.example` for the
 
 | Variable                   | Default                           | Description                                              |
 | -------------------------- | --------------------------------- | -------------------------------------------------------- |
-| `EDGAR_USER_AGENT`         | `FinDocRAG findocrag@example.com` | SEC-required identification string                       |
+| `EDGAR_USER_AGENT`         | `FinDocDRAG findocdrag@example.com` | SEC-required identification string                       |
 | `EDGAR_RATE_LIMIT_RPS`     | `10`                              | Max EDGAR API requests per second (SEC limit is 10 r/s)  |
 | `KAFKA_BOOTSTRAP_SERVERS`  | `kafka:9092`                      | Kafka broker address used by the embedding worker        |
 
@@ -370,8 +370,8 @@ All configuration is driven by environment variables. See `.env.example` for the
 | ------------------- | ------------ | ---------------------------------------- |
 | `POSTGRES_HOST`     | `postgres`   | PostgreSQL hostname                      |
 | `POSTGRES_PORT`     | `5432`       | PostgreSQL port                          |
-| `POSTGRES_DB`       | `findocrag`  | Database name                            |
-| `POSTGRES_USER`     | `findocrag`  | Database user                            |
+| `POSTGRES_DB`       | `findocdrag`  | Database name                            |
+| `POSTGRES_USER`     | `findocdrag`  | Database user                            |
 | `POSTGRES_PASSWORD` | `changeme`   | Database password (override in production) |
 
 **Observability**
