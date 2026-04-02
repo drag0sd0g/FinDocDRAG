@@ -2,7 +2,7 @@
 
 References:
   - TDD: Section 5.2.3 (Ollama backend, mistral:7b default)
-  - TDD: Section 7.1 (timeout after 30s, return 504 with partial response)
+  - TDD: Section 7.1 (timeout after 300s, return 504 with partial response)
 """
 
 from __future__ import annotations

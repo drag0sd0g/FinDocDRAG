@@ -624,7 +624,7 @@ CREATE INDEX idx_chunks_accession ON document_chunks(accession_number);
 │                    └─▶ Query API returns HTTP 503                   │
 │                                                                     │
 │  Ollama ──X──▶ Query API                                           │
-│               └─▶ Timeout after 30 seconds                          │
+│               └─▶ Timeout after 300 seconds                         │
 │                   (aiohttp.ClientTimeout configured in              │
 │                    OllamaBackend — applies to Ollama only)          │
 │               └─▶ Return HTTP 200 with degraded: true               │
