@@ -110,7 +110,7 @@ async def _call_query_api(
         f"{api_url}/v1/query",
         json=payload,
         headers={"X-API-Key": api_key, "Content-Type": "application/json"},
-        timeout=aiohttp.ClientTimeout(total=120),
+        timeout=aiohttp.ClientTimeout(total=600),
     ) as resp:
         resp.raise_for_status()
         return await resp.json()  # type: ignore[no-any-return]
@@ -191,11 +191,11 @@ async def collect_responses(
 # ── ragas evaluation ──────────────────────────────────────────────────────────
 
 
-def _resolve_ragas_llm() -> tuple[Any, str]:
-    """Return (ragas_llm, judge_label) based on available API keys.
+def _resolve_ragas_llm() -> tuple[Any, Any, str]:
+    """Return (ragas_llm, ragas_embeddings, judge_label) based on available API keys.
 
     Priority: ANTHROPIC_API_KEY → OPENAI_API_KEY → Ollama (local fallback).
-    Returns (None, "OpenAI (auto)") when OPENAI_API_KEY is set, since ragas
+    Returns (None, None, "OpenAI (auto)") when OPENAI_API_KEY is set, since ragas
     picks that up automatically without an explicit LLM object.
     Raises ImportError (with a logger.error) when no option is available.
     """
@@ -213,7 +213,7 @@ def _resolve_ragas_llm() -> tuple[Any, str]:
             ragas_llm = LangchainLLMWrapper(
                 ChatAnthropic(model=claude_judge_model, api_key=anthropic_key)
             )
-            return ragas_llm, f"Anthropic/{claude_judge_model}"
+            return ragas_llm, None, f"Anthropic/{claude_judge_model}"
         except ImportError:
             logger.warning(
                 "langchain-anthropic not installed — trying next option. "
@@ -222,22 +222,27 @@ def _resolve_ragas_llm() -> tuple[Any, str]:
 
     if openai_key:
         # ragas picks up OPENAI_API_KEY automatically; no explicit LLM object needed
-        return None, "OpenAI (auto)"
+        return None, None, "OpenAI (auto)"
 
     # Fallback: local Ollama (heavy on RAM — stop other services first)
     try:
         from langchain_community.chat_models import ChatOllama
+        from langchain_community.embeddings import OllamaEmbeddings
+        from ragas.embeddings import LangchainEmbeddingsWrapper
         from ragas.llms import LangchainLLMWrapper
 
         ragas_llm = LangchainLLMWrapper(
             ChatOllama(model=ollama_model, base_url=ollama_url)
+        )
+        ragas_emb = LangchainEmbeddingsWrapper(
+            OllamaEmbeddings(model=ollama_model, base_url=ollama_url)
         )
         logger.warning(
             "No API key found — falling back to local Ollama (%s) for ragas judge. "
             "RAM usage will be high. Set ANTHROPIC_API_KEY for a lighter alternative.",
             ollama_model,
         )
-        return ragas_llm, f"Ollama/{ollama_model} (local)"
+        return ragas_llm, ragas_emb, f"Ollama/{ollama_model} (local)"
     except ImportError:
         logger.error(
             "langchain-community not installed and no API key found. "
@@ -249,6 +254,7 @@ def _resolve_ragas_llm() -> tuple[Any, str]:
 def _build_ragas_dataset(
     valid: list[dict[str, Any]],
     ragas_llm: Any,
+    ragas_embeddings: Any,
     judge_label: str,
 ) -> tuple[Any, list[Any], list[str]]:
     """Build a ragas EvaluationDataset and metric list from valid responses.
@@ -277,8 +283,11 @@ def _build_ragas_dataset(
     dataset = EvaluationDataset(samples=samples)
 
     if ragas_llm is not None:
+        ar_kwargs: dict[str, Any] = {"llm": ragas_llm}
+        if ragas_embeddings is not None:
+            ar_kwargs["embeddings"] = ragas_embeddings
         metrics: list[Any] = [
-            AnswerRelevancy(llm=ragas_llm),
+            AnswerRelevancy(**ar_kwargs),
             Faithfulness(llm=ragas_llm),
             ContextPrecision(llm=ragas_llm),
         ]
@@ -330,11 +339,11 @@ def compute_ragas_metrics(
         return {}, []
 
     try:
-        ragas_llm, judge_label = _resolve_ragas_llm()
+        ragas_llm, ragas_embeddings, judge_label = _resolve_ragas_llm()
     except ImportError:
         return {}, []
 
-    dataset, metrics, metric_names = _build_ragas_dataset(valid, ragas_llm, judge_label)
+    dataset, metrics, metric_names = _build_ragas_dataset(valid, ragas_llm, ragas_embeddings, judge_label)
 
     logger.info("Running ragas evaluation (metrics: %s) …", ", ".join(metric_names))
     try:

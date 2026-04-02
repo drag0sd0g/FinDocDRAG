@@ -25,7 +25,7 @@ class OllamaBackend:
         self,
         base_url: str = DEFAULT_OLLAMA_URL,
         model: str = DEFAULT_MODEL,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float = 300.0,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model

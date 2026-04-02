@@ -18,6 +18,21 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - work_mem=256MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - effective_cache_size=4GB
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U findocdrag -d findocdrag"]
       interval: 5s
@@ -77,6 +92,11 @@ services:
       - "9092:9092"
     volumes:
       - kafkadata:/var/lib/kafka/data
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 10s
@@ -116,6 +136,11 @@ services:
     profiles: [local-llm]
     image: ollama/ollama:latest
     container_name: findoc-ollama
+    deploy:
+      resources:
+        limits:
+          cpus: "8.0"
+          memory: 16G
     ports:
       - "11434:11434"
     volumes:
@@ -152,8 +177,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: 1G
+          cpus: "2.0"
+          memory: 2G
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -188,8 +213,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4G
+          cpus: "8.0"
+          memory: 16G
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -222,8 +247,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 2G
+          cpus: "4.0"
+          memory: 4G
     depends_on:
       db-migrate:
         condition: service_completed_successfully
